@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// 實價登錄「買賣」成交案件（內政部開放資料，臺中市 = 縣市代碼 B）
+model Transaction {
+  serialNo          String    @id // 編號（去識別化流水號）
+  city              String    @default("臺中市")
+  district          String // 鄉鎮市區
+  transactionType   String // 交易標的（房地(土地+建物)、土地、車位…）
+  address           String // 土地位置建物門牌（門牌號碼為區間去識別化）
+  normalizedAddress String? // 正規化後供地理編碼查詢的地址（通常到路段）
+  landArea          Float? // 土地移轉總面積（平方公尺）
+  zoning            String? // 都市土地使用分區
+  transactionDate   DateTime // 交易年月日（民國轉西元）
+  transactionItems  String? // 交易筆棟數
+  floor             String? // 移轉層次
+  totalFloors       Int? // 總樓層數
+  buildingType      String? // 建物型態（住宅大樓、透天厝、公寓…）
+  mainUse           String? // 主要用途
+  buildingMaterial  String? // 主要建材
+  completionDate    DateTime? // 建築完成年月（推算屋齡用）
+  buildingArea      Float? // 建物移轉總面積（平方公尺）
+  rooms             Int? // 格局-房
+  halls             Int? // 格局-廳
+  baths             Int? // 格局-衛
+  compartmented     Boolean? // 有無隔間
+  hasManagement     Boolean? // 有無管理組織
+  totalPrice        BigInt // 總價（元）
+  unitPrice         Float? // 單價（元/平方公尺）
+  parkingType       String? // 車位類別
+  parkingArea       Float? // 車位移轉總面積（平方公尺）
+  parkingPrice      BigInt? // 車位總價（元）
+  note              String? // 備註
+  mainBuildingArea  Float? // 主建物面積
+  auxBuildingArea   Float? // 附屬建物面積
+  balconyArea       Float? // 陽台面積
+  hasElevator       Boolean? // 電梯
+  season            String // 資料季別，如 114S4
+  latitude          Float?
+  longitude         Float?
+  geoPrecision      String? // road=路段層級 / point=門牌層級 / failed=定位失敗
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([district])
+  @@index([transactionDate])
+  @@index([buildingType])
+  @@index([latitude, longitude])
+  @@index([season])
+  @@index([normalizedAddress])
+}
+
+// 地理編碼快取：同一個正規化地址只查一次外部服務
+model GeocodeCache {
+  query     String   @id // 正規化地址
+  latitude  Float?
+  longitude Float?
+  precision String // road / point / failed
+  provider  String   @default("nominatim")
+  createdAt DateTime @default(now())
+}
