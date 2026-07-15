@@ -24,6 +24,7 @@ Before any Next.js work, find and read the relevant doc in `node_modules/next/di
 # hometool 專案規則
 
 - 這是台中市實價登錄地圖（foundi 風格）的 web 專案：Next.js 16 + Prisma 7 + PostgreSQL（Zeabur）+ Leaflet。
+- **基礎設施一律使用 Zeabur 服務**（DB、cache、web 都是）。禁止用本機 Docker 或本機資料庫；開發時透過外部連線字串連 Zeabur 上的服務。
 - 資料來源是內政部實價登錄開放資料（臺中市代碼 B），格式細節見 `lib/lvr.ts`。
 - 不做大規模爬取仲介網站的功能（法律風險，專案既定決策）。
 - 管理 API（`/api/admin/*`）由 n8n 排程呼叫，一律要驗證 `Authorization: Bearer ADMIN_TOKEN`。
