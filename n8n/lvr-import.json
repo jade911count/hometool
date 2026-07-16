@@ -46,7 +46,7 @@
               "id": "base-url",
               "name": "baseUrl",
               "type": "string",
-              "value": "https://YOUR-APP.zeabur.app"
+              "value": "https://hometool.zeabur.app"
             }
           ]
         },
