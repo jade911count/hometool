@@ -1,0 +1,86 @@
+{
+  "name": "hometool 地理編碼",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## hometool 地理編碼\n\n每 5 分鐘處理一批 40 個地址（Nominatim 限速 1 req/s，單批約 2.5 分鐘）。\n回應的 `remaining` = 還沒補座標的交易筆數，追平後每次執行會秒回、不做事。\n\n### 首次設定\nHTTP 節點掛上與「實價登錄匯入」**同一個** Header Auth 憑證。\n\n單批失敗不重試——下一批 5 分鐘後自然接手。",
+        "height": 300,
+        "width": 360
+      },
+      "id": "note-1",
+      "name": "說明",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-560, -160]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "每 5 分鐘",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-140, -140]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "手動執行",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-140, 60]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hometool.zeabur.app/api/admin/geocode?limit=40",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "id": "http-geocode",
+      "name": "地理編碼一批",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [120, -40]
+    }
+  ],
+  "connections": {
+    "每 5 分鐘": {
+      "main": [
+        [
+          {
+            "node": "地理編碼一批",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "手動執行": {
+      "main": [
+        [
+          {
+            "node": "地理編碼一批",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
