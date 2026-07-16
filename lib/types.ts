@@ -10,6 +10,7 @@ export interface CommunityHit {
   id: string;
   name: string;
   district: string;
+  source: string; // presale=預售建案 / address=中古門牌歸戶
   txCount: number;
   avgUnitPricePerPing: number | null;
 }

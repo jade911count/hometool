@@ -63,7 +63,18 @@ export default function CommunitySearch() {
                     router.push(`/community/${h.id}`);
                   }}
                 >
-                  <span className="font-medium text-slate-800">{h.name}</span>
+                  <span className="font-medium text-slate-800">
+                    {h.name}
+                    <span
+                      className={`ml-1 rounded px-1 py-0.5 text-[10px] font-normal ${
+                        h.source === "address"
+                          ? "bg-slate-100 text-slate-500"
+                          : "bg-blue-50 text-blue-600"
+                      }`}
+                    >
+                      {h.source === "address" ? "中古" : "預售"}
+                    </span>
+                  </span>
                   <span className="shrink-0 text-xs text-slate-500">
                     {h.district}｜{h.txCount} 筆
                     {h.avgUnitPricePerPing

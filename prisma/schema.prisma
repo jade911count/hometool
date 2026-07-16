@@ -62,11 +62,14 @@ model Transaction {
   @@index([projectName])
 }
 
-// 社區（Stage 1：由預售屋建案名稱萃取；戶數／建商待使照資料階段補齊）
+// 社區：預售建案（source=presale，名稱來自建案名稱）或
+// 中古門牌歸戶（source=address，一門牌一社區、名稱暫以門牌代稱，待使照資料補齊）
 model Community {
   id                  String    @id @default(cuid())
-  name                String // 建案名稱
+  name                String // 建案名稱或門牌代稱
   district            String // 鄉鎮市區
+  source              String    @default("presale") // presale / address
+  clusterKey          String? // source=address 的分群鍵（正規化地址）
   address             String? // 代表地址（該建案交易中最常見的門牌）
   latitude            Float? // 已定位交易的座標平均
   longitude           Float?
@@ -80,6 +83,7 @@ model Community {
 
   @@unique([name, district])
   @@index([txCount])
+  @@index([clusterKey])
 }
 
 // 地理編碼快取：同一個正規化地址只查一次外部服務

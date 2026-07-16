@@ -40,7 +40,13 @@ export default async function CommunityPage({
   const stats: { label: string; value: string; note?: string }[] = [
     { label: "戶數", value: c.households ? `${c.households} 戶` : PENDING },
     { label: "建商", value: c.builder ?? PENDING },
-    { label: "屋齡", value: ageLabel(c.completionDate) },
+    {
+      label: "屋齡",
+      value:
+        !c.completionDate && c.source === "address"
+          ? "—"
+          : ageLabel(c.completionDate),
+    },
     {
       label: "平均成交",
       value: c.avgTotalPrice ? fmtWan(c.avgTotalPrice) : "—",
@@ -69,13 +75,21 @@ export default async function CommunityPage({
 
       {/* 社區資訊 */}
       <header className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">{c.name}</h1>
+        <h1 className="text-2xl font-bold text-slate-800">
+          {c.name}
+          <span className="ml-2 align-middle rounded bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-500">
+            {c.source === "address" ? "中古" : "預售"}
+          </span>
+        </h1>
         <p className="mt-1 text-sm text-slate-500">
           臺中市{c.district}
           {c.address ? `｜${c.address}` : ""}
+          {c.buildingType ? `｜${c.buildingType}` : ""}
         </p>
         <p className="mt-1 text-xs text-slate-400">
-          資料來源：內政部實價登錄（預售屋），已排除解約案件
+          {c.source === "address"
+            ? "資料來源：內政部實價登錄（中古買賣）。社區名稱待建物使照資料補齊，暫以門牌代稱"
+            : "資料來源：內政部實價登錄（預售屋），已排除解約案件"}
         </p>
       </header>
 

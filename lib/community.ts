@@ -1,4 +1,6 @@
-// 社區詳情統計：由預售交易（排除解約）即時聚合
+// 社區詳情統計：即時聚合
+//   source=presale → 該建案的預售交易（排除解約）
+//   source=address → 該門牌的中古交易
 // 供 /community/[id] 頁面（server component）使用
 
 import { prisma } from "./prisma";
@@ -29,6 +31,8 @@ export interface CommunityDetail {
   id: string;
   name: string;
   district: string;
+  source: string; // presale / address
+  buildingType: string | null; // 最常見建物型態（address 型社區顯示用）
   address: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -55,18 +59,24 @@ export async function getCommunityDetail(
   const community = await prisma.community.findUnique({ where: { id } });
   if (!community) return null;
 
+  const where =
+    community.source === "address" && community.clusterKey
+      ? { category: "sale", normalizedAddress: community.clusterKey }
+      : {
+          category: "presale",
+          projectName: community.name,
+          district: community.district,
+          cancellation: null as null,
+        };
+
   const txs = await prisma.transaction.findMany({
-    where: {
-      category: "presale",
-      projectName: community.name,
-      district: community.district,
-      cancellation: null,
-    },
+    where,
     orderBy: { transactionDate: "desc" },
     select: {
       serialNo: true,
       transactionDate: true,
       buildingUnit: true,
+      buildingType: true,
       floor: true,
       totalFloors: true,
       rooms: true,
@@ -124,10 +134,21 @@ export async function getCommunityDetail(
   const completionDate =
     txs.map((t) => t.completionDate).find((d) => d !== null) ?? null;
 
+  // 最常見建物型態（address 型社區顯示用）
+  const typeCount = new Map<string, number>();
+  for (const t of txs) {
+    if (t.buildingType)
+      typeCount.set(t.buildingType, (typeCount.get(t.buildingType) ?? 0) + 1);
+  }
+  const buildingType =
+    [...typeCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
   return {
     id: community.id,
     name: community.name,
     district: community.district,
+    source: community.source,
+    buildingType,
     address: community.address,
     latitude: community.latitude,
     longitude: community.longitude,
