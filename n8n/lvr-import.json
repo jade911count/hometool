@@ -1,0 +1,150 @@
+{
+  "name": "hometool 實價登錄匯入",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## hometool 實價登錄匯入\n\n**定期**：Schedule Trigger 的 cron 可直接改（預設每月 2、12、22 日 03:30，內政部 1/11/21 更新後隔天抓）。\n**即時**：點 Manual Trigger 後按 Execute Workflow。\n\n### 首次設定\n1. 在「參數設定」填入 Zeabur 網址\n2. 建立 Header Auth 憑證：Name=`Authorization`、Value=`Bearer <ADMIN_TOKEN>`，掛到兩個 HTTP 節點\n\n流程：匯入 8 季（買賣＋預售）→ 重建社區",
+        "height": 340,
+        "width": 380
+      },
+      "id": "note-1",
+      "name": "說明",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-620, -180]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 3 2,12,22 * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "定期抓取（cron 可改）",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-180, -160]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "即時抓取（手動執行）",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-180, 40]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "base-url",
+              "name": "baseUrl",
+              "type": "string",
+              "value": "https://YOUR-APP.zeabur.app"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-config",
+      "name": "參數設定",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [60, -60]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.baseUrl }}/api/admin/import",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "http-import",
+      "name": "匯入實價登錄（買賣＋預售）",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, -60],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('參數設定').item.json.baseUrl }}/api/admin/communities",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "http-rebuild",
+      "name": "重建社區",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, -60],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "定期抓取（cron 可改）": {
+      "main": [
+        [
+          {
+            "node": "參數設定",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "即時抓取（手動執行）": {
+      "main": [
+        [
+          {
+            "node": "參數設定",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "參數設定": {
+      "main": [
+        [
+          {
+            "node": "匯入實價登錄（買賣＋預售）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "匯入實價登錄（買賣＋預售）": {
+      "main": [
+        [
+          {
+            "node": "重建社區",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

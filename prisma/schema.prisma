@@ -45,6 +45,10 @@ model Transaction {
   latitude          Float?
   longitude         Float?
   geoPrecision      String? // road=路段層級 / point=門牌層級 / failed=定位失敗
+  category          String    @default("sale") // sale=買賣(A檔) / presale=預售屋(B檔)
+  projectName       String? // 建案名稱（僅預售檔揭露）
+  buildingUnit      String? // 棟及號（僅預售檔）
+  cancellation      String? // 解約情形（僅預售檔；非空=曾解約，統計時排除）
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -54,6 +58,28 @@ model Transaction {
   @@index([latitude, longitude])
   @@index([season])
   @@index([normalizedAddress])
+  @@index([category])
+  @@index([projectName])
+}
+
+// 社區（Stage 1：由預售屋建案名稱萃取；戶數／建商待使照資料階段補齊）
+model Community {
+  id                  String    @id @default(cuid())
+  name                String // 建案名稱
+  district            String // 鄉鎮市區
+  address             String? // 代表地址（該建案交易中最常見的門牌）
+  latitude            Float? // 已定位交易的座標平均
+  longitude           Float?
+  txCount             Int       @default(0) // 未解約成交筆數（重建時快取）
+  avgUnitPricePerPing Int? // 每坪均價快取（元）
+  lastDealDate        DateTime? // 最近成交日快取
+  households          Int? // 戶數（Stage 3 使照資料）
+  builder             String? // 建商／起造人（Stage 3 使照資料）
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([name, district])
+  @@index([txCount])
 }
 
 // 地理編碼快取：同一個正規化地址只查一次外部服務

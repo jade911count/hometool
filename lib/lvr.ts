@@ -1,14 +1,26 @@
 // 內政部實價登錄開放資料：下載與解析
 // 資料來源：https://plvr.land.moi.gov.tw（每月 1、11、21 日更新批次）
-// 臺中市縣市代碼 = B，買賣案件檔 = B_lvr_land_A.csv（UTF-8 with BOM）
+// 臺中市縣市代碼 = B；買賣案件檔 = B_lvr_land_A.csv、預售屋檔 = B_lvr_land_B.csv（UTF-8 with BOM）
+// 預售屋檔比買賣檔多三欄：建案名稱、棟及號、解約情形；少了主/附建物、陽台面積與電梯欄
 
 import { parse } from "csv-parse/sync";
 import { parseRocDate } from "./roc";
 
 const DOWNLOAD_URL = "https://plvr.land.moi.gov.tw/DownloadSeason";
 
+/** 檔別 → Transaction.category 的對應：A 檔=中古買賣、B 檔=預售屋 */
+export type LvrCategory = "sale" | "presale";
+export const FILE_OF_CATEGORY: Record<LvrCategory, string> = {
+  sale: "A",
+  presale: "B",
+};
+
 export interface LvrRecord {
   serialNo: string;
+  category: LvrCategory;
+  projectName: string | null;
+  buildingUnit: string | null;
+  cancellation: string | null;
   district: string;
   transactionType: string;
   address: string;
@@ -121,7 +133,11 @@ function str(v: string | undefined): string | null {
 }
 
 /** 解析實價登錄 CSV 內容為結構化紀錄（跳過英文標頭列與無效列） */
-export function parseLvrCsv(csvText: string, season: string): LvrRecord[] {
+export function parseLvrCsv(
+  csvText: string,
+  season: string,
+  category: LvrCategory = "sale"
+): LvrRecord[] {
   const rows: Record<string, string>[] = parse(csvText, {
     columns: true,
     bom: true,
@@ -143,6 +159,10 @@ export function parseLvrCsv(csvText: string, season: string): LvrRecord[] {
     const address = row["土地位置建物門牌"]?.trim() ?? "";
     records.push({
       serialNo,
+      category,
+      projectName: str(row["建案名稱"]),
+      buildingUnit: str(row["棟及號"]),
+      cancellation: str(row["解約情形"]),
       district,
       transactionType: row["交易標的"]?.trim() ?? "",
       address,

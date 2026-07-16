@@ -12,6 +12,7 @@ import {
   TAICHUNG_DISTRICTS,
   BUILDING_TYPES,
 } from "@/lib/types";
+import CommunitySearch from "./CommunitySearch";
 
 // 台中車站附近作為初始中心
 const INITIAL_CENTER: [number, number] = [24.1439, 120.6794];
@@ -108,6 +109,7 @@ export default function TransactionMap() {
         <span className="mr-2 text-base font-bold text-slate-800">
           hometool <span className="font-normal text-slate-400">台中實價地圖</span>
         </span>
+        <CommunitySearch />
         <select
           className="rounded border border-slate-300 px-2 py-1"
           value={filters.district}

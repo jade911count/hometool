@@ -1,4 +1,18 @@
-// 前後端共用的 API 回應型別（日期經 JSON 序列化後為字串）
+// 前後端共用的 API 回應型別（日期經 JSON 序列化後為字串）與換算常數
+
+/** 1 坪 = 3.3058 m²：每坪單價 = 每平方公尺單價 × SQM_PER_PING */
+export const SQM_PER_PING = 3.3058;
+/** 面積換算：坪數 = 平方公尺 × PING_PER_SQM */
+export const PING_PER_SQM = 0.3025;
+
+/** 社區搜尋（autocomplete）結果項 */
+export interface CommunityHit {
+  id: string;
+  name: string;
+  district: string;
+  txCount: number;
+  avgUnitPricePerPing: number | null;
+}
 
 export interface TransactionPoint {
   serialNo: string;
