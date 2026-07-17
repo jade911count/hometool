@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## hometool 地理編碼\n\n每 5 分鐘處理一批 75 個地址（程式內部以 1.1s 間隔遵守 Nominatim 1 req/s 政策；單批最壞約 4.4 分鐘，再大會跟下一批重疊）。\n回應的 `remaining` = 還沒補座標的交易筆數，追平後每次執行會秒回、不做事。\n\n### 首次設定\nHTTP 節點掛上與「實價登錄匯入」**同一個** Header Auth 憑證。\n\n單批失敗不重試——下一批 5 分鐘後自然接手。",
+        "content": "## hometool 地理編碼\n\n每 3 分鐘處理一批 35 個地址（程式內部以 1.1s 間隔遵守 Nominatim 1 req/s 政策；單批約 2 分鐘——Zeabur 閘道對單一請求約 150 秒就切斷，批量再大會 502）。\n回應的 `remaining` = 還沒補座標的交易筆數，追平後每次執行會秒回、不做事。\n\n### 首次設定\nHTTP 節點掛上與「實價登錄匯入」**同一個** Header Auth 憑證。\n\n單批失敗不重試——下一批 3 分鐘後自然接手，已處理的地址不會重做。",
         "height": 300,
         "width": 360
       },
@@ -19,7 +19,7 @@
           "interval": [
             {
               "field": "minutes",
-              "minutesInterval": 5
+              "minutesInterval": 3
             }
           ]
         }
@@ -41,11 +41,11 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://hometool.zeabur.app/api/admin/geocode?limit=75",
+        "url": "https://hometool.zeabur.app/api/admin/geocode?limit=35",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {
-          "timeout": 290000
+          "timeout": 170000
         }
       },
       "id": "http-geocode",
