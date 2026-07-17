@@ -86,6 +86,27 @@ model Community {
   @@index([clusterKey])
 }
 
+// 官方社區名冊：臺中市公寓大廈報備資料（都發局開放資料，約每半年更新）
+// 名冊本身沒有門牌，由使用者（房仲）把名冊社區「綁定」到中古門牌社區
+// （boundClusterKey = Community.clusterKey），該社區即獲得正式名稱與戶數
+model CondoRegistry {
+  id              String    @id @default(cuid())
+  licenseSerial   String // 使照序號（同一張使照可有多個報備組織，如住宅＋店面）
+  name            String // 公寓大廈名稱
+  orgType         String? // 管理組織型態（管理委員會／管理負責人）
+  households      Int? // 戶數
+  district        String // 行政區
+  boundClusterKey String?   @unique // 綁定的中古社區分群鍵（正規化地址）
+  boundAt         DateTime? // 綁定時間（審計）
+  boundByIp       String? // 綁定者 IP（未登入階段的審計欄位）
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([licenseSerial, name]) // 重匯 upsert 鍵
+  @@index([name])
+  @@index([district])
+}
+
 // 地理編碼快取：同一個正規化地址只查一次外部服務
 model GeocodeCache {
   query     String   @id // 正規化地址

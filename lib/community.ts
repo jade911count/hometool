@@ -45,6 +45,12 @@ export interface CommunityDetail {
   avgUnitPricePerPing: number | null; // 元/坪
   trend: CommunityTrendPoint[]; // 依季別由舊到新
   deals: CommunityDeal[]; // 由新到舊
+  registry: { id: string; name: string } | null; // 已綁定的官方名冊（address 型社區）
+}
+
+/** 門牌代稱：去掉「臺中市＋行政區」前綴（臺中市北屯區詔安街88號 → 詔安街88號） */
+export function addressAlias(normalizedAddress: string, district: string): string {
+  return normalizedAddress.replace("臺中市", "").replace(district, "");
 }
 
 /** 季別排序鍵："114S3" → 1143 */
@@ -143,6 +149,15 @@ export async function getCommunityDetail(
   const buildingType =
     [...typeCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
+  // 中古門牌社區已綁定的官方名冊（詳情頁顯示綁定狀態／解除入口用）
+  const registry =
+    community.source === "address" && community.clusterKey
+      ? await prisma.condoRegistry.findUnique({
+          where: { boundClusterKey: community.clusterKey },
+          select: { id: true, name: true },
+        })
+      : null;
+
   return {
     id: community.id,
     name: community.name,
@@ -169,5 +184,6 @@ export async function getCommunityDetail(
       : null,
     trend,
     deals,
+    registry,
   };
 }

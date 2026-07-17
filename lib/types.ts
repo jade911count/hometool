@@ -15,6 +15,14 @@ export interface CommunityHit {
   avgUnitPricePerPing: number | null;
 }
 
+/** 官方名冊（公寓大廈報備）搜尋結果項：尚未綁定門牌的社區 */
+export interface RegistryHit {
+  id: string;
+  name: string;
+  district: string;
+  households: number | null;
+}
+
 export interface TransactionPoint {
   serialNo: string;
   district: string;

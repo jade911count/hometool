@@ -6,6 +6,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCommunityDetail } from "@/lib/community";
 import CommunityTrend from "@/components/CommunityTrend";
+import RegistryBind from "@/components/RegistryBind";
 
 export const dynamic = "force-dynamic";
 
@@ -86,11 +87,24 @@ export default async function CommunityPage({
           {c.address ? `｜${c.address}` : ""}
           {c.buildingType ? `｜${c.buildingType}` : ""}
         </p>
-        <p className="mt-1 text-xs text-slate-400">
-          {c.source === "address"
-            ? "資料來源：內政部實價登錄（中古買賣）。社區名稱待建物使照資料補齊，暫以門牌代稱"
-            : "資料來源：內政部實價登錄（預售屋），已排除解約案件"}
-        </p>
+        {c.source === "address" ? (
+          <>
+            {!c.registry && (
+              <p className="mt-1 text-xs text-slate-400">
+                資料來源：內政部實價登錄（中古買賣）。社區名稱尚未建檔，暫以門牌代稱
+              </p>
+            )}
+            <RegistryBind
+              communityId={c.id}
+              district={c.district}
+              bound={c.registry}
+            />
+          </>
+        ) : (
+          <p className="mt-1 text-xs text-slate-400">
+            資料來源：內政部實價登錄（預售屋），已排除解約案件
+          </p>
+        )}
       </header>
 
       {/* 統計卡 */}

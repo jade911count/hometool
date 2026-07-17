@@ -5,6 +5,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { isAuthorized, unauthorized } from "@/lib/admin-auth";
+import { addressAlias } from "@/lib/community";
 import { SQM_PER_PING } from "@/lib/types";
 
 /** 歸戶對象：有社區概念的集合住宅（透天、店面、廠辦排除） */
@@ -73,11 +74,6 @@ function accumulate(g: Agg, r: TxRow) {
   }
 }
 
-/** 門牌代稱：去掉「臺中市＋行政區」前綴（臺中市北屯區詔安街88號 → 詔安街88號） */
-function shortAddress(normalizedAddress: string, district: string): string {
-  return normalizedAddress.replace("臺中市", "").replace(district, "");
-}
-
 export async function POST(request: Request) {
   if (!isAuthorized(request)) return unauthorized();
 
@@ -130,7 +126,7 @@ export async function POST(request: Request) {
     let g = groups.get(key);
     if (!g) {
       g = newAgg(
-        shortAddress(r.normalizedAddress!, r.district),
+        addressAlias(r.normalizedAddress!, r.district),
         r.district,
         "address",
         r.normalizedAddress
@@ -156,6 +152,15 @@ export async function POST(request: Request) {
     lastDealDate: g.lastDealDate,
   }));
 
+  // 已綁定官方名冊的中古社區：以名冊名稱＋戶數覆蓋門牌代稱（依 clusterKey 對應）
+  const boundRegistries = await prisma.condoRegistry.findMany({
+    where: { boundClusterKey: { not: null } },
+    select: { boundClusterKey: true, name: true, households: true },
+  });
+  const registryMap = new Map(
+    boundRegistries.map((r) => [r.boundClusterKey!, r])
+  );
+
   // 重建前保留使照階段補上的欄位（戶數／建商），依（名稱＋區）還原
   const enriched = await prisma.community.findMany({
     where: { OR: [{ households: { not: null } }, { builder: { not: null } }] },
@@ -169,10 +174,12 @@ export async function POST(request: Request) {
     prisma.community.deleteMany({}),
     prisma.community.createMany({
       data: data.map((d) => {
+        const bound = d.clusterKey ? registryMap.get(d.clusterKey) : undefined;
         const prev = enrichedMap.get(`${d.district}|${d.name}`);
         return {
           ...d,
-          households: prev?.households ?? null,
+          name: bound?.name ?? d.name,
+          households: bound?.households ?? prev?.households ?? null,
           builder: prev?.builder ?? null,
         };
       }),

@@ -4,11 +4,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { CommunityHit } from "@/lib/types";
+import type { CommunityHit, RegistryHit } from "@/lib/types";
 
 export default function CommunitySearch() {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<CommunityHit[]>([]);
+  const [registryHits, setRegistryHits] = useState<RegistryHit[]>([]);
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const boxRef = useRef<HTMLDivElement>(null);
@@ -18,6 +19,7 @@ export default function CommunitySearch() {
       const term = q.trim();
       if (!term) {
         setHits([]);
+        setRegistryHits([]);
         setOpen(false);
         return;
       }
@@ -25,6 +27,7 @@ export default function CommunitySearch() {
       if (res.ok) {
         const data = await res.json();
         setHits(data.communities);
+        setRegistryHits(data.registry ?? []);
         setOpen(true);
       }
     }, 300);
@@ -51,7 +54,7 @@ export default function CommunitySearch() {
       />
       {open && (
         <ul className="absolute left-0 top-full z-[1100] mt-1 max-h-80 w-72 overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
-          {hits.length === 0 ? (
+          {hits.length === 0 && registryHits.length === 0 ? (
             <li className="px-3 py-2 text-slate-400">找不到符合的社區</li>
           ) : (
             hits.map((h) => (
@@ -84,6 +87,31 @@ export default function CommunitySearch() {
                 </button>
               </li>
             ))
+          )}
+          {/* 官方名冊中尚未綁定門牌的社區：搜得到名稱與戶數，但還沒有交易資料入口 */}
+          {registryHits.length > 0 && (
+            <>
+              <li className="border-t border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-400">
+                官方名冊（尚未連結門牌，可從中古社區頁綁定）
+              </li>
+              {registryHits.map((h) => (
+                <li
+                  key={h.id}
+                  className="flex items-baseline justify-between gap-2 px-3 py-2"
+                >
+                  <span className="text-slate-500">
+                    {h.name}
+                    <span className="ml-1 rounded bg-amber-50 px-1 py-0.5 text-[10px] text-amber-600">
+                      名冊
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xs text-slate-400">
+                    {h.district}
+                    {h.households ? `｜${h.households} 戶` : ""}
+                  </span>
+                </li>
+              ))}
+            </>
           )}
         </ul>
       )}
