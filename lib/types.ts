@@ -13,6 +13,7 @@ export interface CommunityHit {
   source: string; // presale=預售建案 / address=中古門牌歸戶
   txCount: number;
   avgUnitPricePerPing: number | null;
+  builder: string | null; // 建商（建案備查；搜建商名時據此命中）
 }
 
 /** 官方名冊（公寓大廈報備）搜尋結果項：尚未綁定門牌的社區 */

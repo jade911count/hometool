@@ -120,6 +120,26 @@ model CommunityBinding {
   @@index([registryId])
 }
 
+// 預售屋建案備查（內政部 plvr 開放資料，110 年 7 月備查制度起）
+// 用途：預售社區自動補建商／戶數；「按建商找建案」搜尋
+model BuildCase {
+  id            String    @id @default(cuid())
+  name          String // 建案名稱
+  district      String // 鄉鎮市區
+  builder       String // 起造人（公司或自然人；已去除「負責人：…」後綴）
+  households    Int? // 層棟戶數
+  street        String? // 坐落街道
+  sellingPeriod String? // 銷售期間
+  permitNo      String? // 建造執照字號
+  declareDate   DateTime? // 申報備查日期
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([name, district]) // 同名同區取備查日期最新一筆
+  @@index([builder])
+  @@index([name])
+}
+
 // 地理編碼快取：同一個正規化地址只查一次外部服務
 model GeocodeCache {
   query     String   @id // 正規化地址

@@ -12,8 +12,11 @@ export async function GET(request: Request) {
   const q = searchParams.get("q")?.trim() ?? "";
   const limit = Math.min(Number(searchParams.get("limit")) || 10, 30);
 
+  // 名稱或建商比對：輸入「興富發」可列出該建商旗下所有建案
   const rows = await prisma.community.findMany({
-    where: q ? { name: { contains: q } } : {},
+    where: q
+      ? { OR: [{ name: { contains: q } }, { builder: { contains: q } }] }
+      : {},
     orderBy: { txCount: "desc" },
     take: limit,
     select: {
@@ -23,6 +26,7 @@ export async function GET(request: Request) {
       source: true,
       txCount: true,
       avgUnitPricePerPing: true,
+      builder: true,
     },
   });
 

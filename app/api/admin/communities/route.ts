@@ -226,7 +226,15 @@ export async function POST(request: Request) {
     })),
   ];
 
-  // 重建前保留使照階段補上的欄位（戶數／建商），依（名稱＋區）還原
+  // 預售社區補建商／戶數：建案備查依（建案名稱＋行政區）對應
+  const buildCases = await prisma.buildCase.findMany({
+    select: { name: true, district: true, builder: true, households: true },
+  });
+  const caseMap = new Map(
+    buildCases.map((c) => [`${c.district}|${c.name}`, c])
+  );
+
+  // 重建前保留人工補上的欄位（戶數／建商），依（名稱＋區）還原
   const enriched = await prisma.community.findMany({
     where: { OR: [{ households: { not: null } }, { builder: { not: null } }] },
     select: { name: true, district: true, households: true, builder: true },
@@ -237,10 +245,12 @@ export async function POST(request: Request) {
 
   const rows = data.map(({ registryHouseholds, ...d }) => {
     const prev = enrichedMap.get(`${d.district}|${d.name}`);
+    const bc =
+      d.source === "presale" ? caseMap.get(`${d.district}|${d.name}`) : undefined;
     return {
       ...d,
-      households: registryHouseholds ?? prev?.households ?? null,
-      builder: prev?.builder ?? null,
+      households: registryHouseholds ?? bc?.households ?? prev?.households ?? null,
+      builder: bc?.builder ?? prev?.builder ?? null,
     };
   });
 

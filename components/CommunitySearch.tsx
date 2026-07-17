@@ -77,6 +77,11 @@ export default function CommunitySearch() {
                     >
                       {h.source === "address" ? "中古" : "預售"}
                     </span>
+                    {h.builder && (
+                      <span className="ml-1 text-[10px] font-normal text-slate-400">
+                        {h.builder}
+                      </span>
+                    )}
                   </span>
                   <span className="shrink-0 text-xs text-slate-500">
                     {h.district}｜{h.txCount} 筆

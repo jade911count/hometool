@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## hometool 實價登錄匯入\n\n**定期**：Schedule Trigger 的 cron 可直接改（預設每月 2、12、22 日 03:30，內政部 1/11/21 更新後隔天抓）。\n**即時**：點 Manual Trigger 後按 Execute Workflow。\n\n### 首次設定\n1. 在「參數設定」填入 Zeabur 網址\n2. 建立 Header Auth 憑證：Name=`Authorization`、Value=`Bearer <ADMIN_TOKEN>`，掛到兩個 HTTP 節點\n\n流程：匯入 8 季（買賣＋預售）→ 重建社區",
+        "content": "## hometool 實價登錄匯入\n\n**定期**：Schedule Trigger 的 cron 可直接改（預設每月 2、12、22 日 03:30，內政部 1/11/21 更新後隔天抓）。\n**即時**：點 Manual Trigger 後按 Execute Workflow。\n\n### 首次設定\n1. 在「參數設定」填入 Zeabur 網址\n2. 建立 Header Auth 憑證：Name=`Authorization`、Value=`Bearer <ADMIN_TOKEN>`，掛到三個 HTTP 節點\n\n流程：匯入 8 季（買賣＋預售）→ 匯入建案備查（建商／戶數）→ 重建社區",
         "height": 340,
         "width": 380
       },
@@ -80,18 +80,37 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('參數設定').item.json.baseUrl }}/api/admin/communities",
+        "url": "={{ $('參數設定').item.json.baseUrl }}/api/admin/buildcases",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {
           "timeout": 120000
         }
       },
+      "id": "http-buildcase",
+      "name": "匯入建案備查",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, -60],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('參數設定').item.json.baseUrl }}/api/admin/communities",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 180000
+        }
+      },
       "id": "http-rebuild",
       "name": "重建社區",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [540, -60],
+      "position": [780, -60],
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 5000
@@ -132,6 +151,17 @@
       ]
     },
     "匯入實價登錄（買賣＋預售）": {
+      "main": [
+        [
+          {
+            "node": "匯入建案備查",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "匯入建案備查": {
       "main": [
         [
           {
