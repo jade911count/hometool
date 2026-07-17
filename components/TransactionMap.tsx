@@ -3,12 +3,21 @@
 // 地圖找房主畫面：Leaflet 地圖 + 篩選列 + 地址成交歷史側欄
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MapContainer, TileLayer, CircleMarker, Tooltip, useMapEvents } from "react-leaflet";
-import type { Map as LeafletMap } from "leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  CircleMarker,
+  Marker,
+  Popup,
+  Tooltip,
+  useMapEvents,
+} from "react-leaflet";
+import L, { type Map as LeafletMap } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
   type TransactionPoint,
   type AddressDetail,
+  type CommunityMapHit,
   TAICHUNG_DISTRICTS,
   BUILDING_TYPES,
 } from "@/lib/types";
@@ -18,6 +27,16 @@ import { floorLabel } from "@/lib/floors";
 // 台中車站附近作為初始中心
 const INITIAL_CENTER: [number, number] = [24.1439, 120.6794];
 const INITIAL_ZOOM = 14;
+
+// 社區圖示顯示的最小縮放層級（太遠會滿版圖示蓋住點位）
+const COMMUNITY_MIN_ZOOM = 15;
+
+const buildingIcon = L.divIcon({
+  html: '<div style="font-size:20px;line-height:20px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))">🏢</div>',
+  className: "",
+  iconSize: [20, 20],
+  iconAnchor: [10, 10],
+});
 
 interface Filters {
   district: string;
@@ -60,6 +79,7 @@ function MapEvents({ onMoveEnd }: { onMoveEnd: (map: LeafletMap) => void }) {
 
 export default function TransactionMap() {
   const [points, setPoints] = useState<TransactionPoint[]>([]);
+  const [communities, setCommunities] = useState<CommunityMapHit[]>([]);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [detail, setDetail] = useState<AddressDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -67,10 +87,9 @@ export default function TransactionMap() {
 
   const loadPoints = useCallback(async (map: LeafletMap) => {
     const b = map.getBounds();
+    const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
     const f = filters;
-    const params = new URLSearchParams({
-      bbox: `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`,
-    });
+    const params = new URLSearchParams({ bbox });
     if (f.district) params.set("district", f.district);
     if (f.buildingType) params.set("buildingType", f.buildingType);
     if (f.priceMin) params.set("priceMin", f.priceMin);
@@ -80,10 +99,21 @@ export default function TransactionMap() {
 
     setLoading(true);
     try {
+      // 社區圖示只在中高縮放層級載入，避免遠距離滿版圖示
+      const communityReq =
+        map.getZoom() >= COMMUNITY_MIN_ZOOM
+          ? fetch(`/api/communities/map?bbox=${bbox}`)
+          : null;
       const res = await fetch(`/api/transactions?${params}`);
       if (res.ok) {
         const data = await res.json();
         setPoints(data.points);
+      }
+      if (communityReq) {
+        const cres = await communityReq;
+        if (cres.ok) setCommunities((await cres.json()).communities);
+      } else {
+        setCommunities([]);
       }
     } finally {
       setLoading(false);
@@ -110,7 +140,9 @@ export default function TransactionMap() {
         <span className="mr-2 text-base font-bold text-slate-800">
           hometool <span className="font-normal text-slate-400">台中實價地圖</span>
         </span>
-        <CommunitySearch />
+        <CommunitySearch
+          onArea={(lat, lng) => mapRef.current?.setView([lat, lng], 15)}
+        />
         <select
           className="rounded border border-slate-300 px-2 py-1"
           value={filters.district}
@@ -218,6 +250,43 @@ export default function TransactionMap() {
               </Tooltip>
             </CircleMarker>
           ))}
+          {/* 社區建築物圖示（點擊出摘要卡） */}
+          {communities
+            .filter((c) => c.latitude !== null && c.longitude !== null)
+            .map((c) => (
+              <Marker
+                key={c.id}
+                position={[c.latitude!, c.longitude!]}
+                icon={buildingIcon}
+              >
+                <Popup>
+                  <div className="text-xs" style={{ minWidth: 150 }}>
+                    <div className="text-sm font-bold text-slate-800">
+                      {c.name}
+                      <span className="ml-1 rounded bg-slate-100 px-1 py-0.5 text-[10px] font-normal text-slate-500">
+                        {c.source === "address" ? "中古" : "預售"}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-slate-500">
+                      {c.district}
+                      {c.households ? `｜${c.households} 戶` : ""}
+                    </div>
+                    <div className="mt-0.5 text-slate-700">
+                      {c.txCount} 筆
+                      {c.avgUnitPricePerPing
+                        ? `｜${(c.avgUnitPricePerPing / 10000).toFixed(1)} 萬/坪`
+                        : ""}
+                    </div>
+                    <a
+                      href={`/community/${c.id}`}
+                      className="mt-1 inline-block font-medium text-blue-600 hover:underline"
+                    >
+                      社區分析 →
+                    </a>
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
         </MapContainer>
 
         {/* 圖例 */}

@@ -16,6 +16,19 @@ export interface CommunityHit {
   builder: string | null; // 建商（建案備查；搜建商名時據此命中）
 }
 
+/** 地圖社區圖層項（有座標的社區） */
+export interface CommunityMapHit {
+  id: string;
+  name: string;
+  district: string;
+  source: string;
+  txCount: number;
+  avgUnitPricePerPing: number | null;
+  households: number | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
 /** 官方名冊（公寓大廈報備）搜尋結果項：尚未綁定門牌的社區 */
 export interface RegistryHit {
   id: string;

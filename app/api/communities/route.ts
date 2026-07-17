@@ -1,10 +1,12 @@
 // 社區搜尋端點（autocomplete）
-// GET /api/communities?q=惠宇               → 名稱包含關鍵字，依成交筆數排序；
+// GET /api/communities?q=惠宇               → 名稱或建商包含關鍵字，依成交筆數排序；
 //                                             另附上名稱符合、尚未綁定門牌的官方名冊社區
+// GET /api/communities?q=七期               → 命中區域辭典時另回傳 area 與範圍內的 nearby 社區
 // GET /api/communities?q=惠宇&registry=all  → 名冊不過濾綁定狀態（綁定元件用：併棟時要選到已綁名冊）
 // GET /api/communities                      → 熱門社區（成交筆數最多）
 
 import { prisma } from "@/lib/prisma";
+import { matchArea, distanceKm } from "@/lib/areas";
 import type { CommunityHit, RegistryHit } from "@/lib/types";
 
 export async function GET(request: Request) {
@@ -45,8 +47,48 @@ export async function GET(request: Request) {
       })
     : [];
 
+  // 區域關鍵字（七期、水湳…）：回傳範圍內有座標的社區
+  const area = q ? matchArea(q) : null;
+  let nearby: CommunityHit[] = [];
+  if (area) {
+    const dLat = area.radiusKm / 111;
+    const dLng =
+      area.radiusKm / (111 * Math.cos((area.latitude * Math.PI) / 180));
+    const candidates = await prisma.community.findMany({
+      where: {
+        latitude: { gte: area.latitude - dLat, lte: area.latitude + dLat },
+        longitude: { gte: area.longitude - dLng, lte: area.longitude + dLng },
+      },
+      orderBy: { txCount: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        name: true,
+        district: true,
+        source: true,
+        txCount: true,
+        avgUnitPricePerPing: true,
+        builder: true,
+        latitude: true,
+        longitude: true,
+      },
+    });
+    nearby = candidates
+      .filter(
+        (c) =>
+          distanceKm(area.latitude, area.longitude, c.latitude!, c.longitude!) <=
+          area.radiusKm
+      )
+      .slice(0, 15)
+      .map(({ latitude: _lat, longitude: _lng, ...hit }) => hit);
+  }
+
   return Response.json({
     communities: rows satisfies CommunityHit[],
     registry,
+    area: area
+      ? { name: area.name, latitude: area.latitude, longitude: area.longitude }
+      : null,
+    nearby,
   });
 }
