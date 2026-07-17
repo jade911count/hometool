@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCommunityDetail } from "@/lib/community";
+import { floorLabel } from "@/lib/floors";
 import CommunityTrend from "@/components/CommunityTrend";
 import RegistryBind from "@/components/RegistryBind";
 
@@ -158,7 +159,7 @@ export default async function CommunityPage({
                   <td className="py-2 pr-3">{fmtDate(d.transactionDate)}</td>
                   <td className="py-2 pr-3">{d.buildingUnit ?? "—"}</td>
                   <td className="py-2 pr-3">
-                    {d.floor ? `${d.floor}${d.totalFloors ? ` / ${d.totalFloors}F` : ""}` : "—"}
+                    {d.floor ? `${floorLabel(d.floor)}${d.totalFloors ? ` / ${d.totalFloors}F` : ""}` : "—"}
                   </td>
                   <td className="py-2 pr-3">
                     {[d.rooms, d.halls, d.baths].every((v) => v === null)

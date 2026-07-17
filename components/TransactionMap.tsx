@@ -13,6 +13,7 @@ import {
   BUILDING_TYPES,
 } from "@/lib/types";
 import CommunitySearch from "./CommunitySearch";
+import { floorLabel } from "@/lib/floors";
 
 // 台中車站附近作為初始中心
 const INITIAL_CENTER: [number, number] = [24.1439, 120.6794];
@@ -268,7 +269,7 @@ export default function TransactionMap() {
                   </div>
                   <div className="mt-1 text-slate-500">
                     {t.buildingType ?? "—"}
-                    {t.floor ? `｜${t.floor}/${t.totalFloors ?? "?"}F` : ""}
+                    {t.floor ? `｜${floorLabel(t.floor)}/${t.totalFloors ?? "?"}F` : ""}
                     {t.areaPing ? `｜${t.areaPing} 坪` : ""}
                     {t.unitPricePerPing
                       ? `｜${(t.unitPricePerPing / 10000).toFixed(1)} 萬/坪`

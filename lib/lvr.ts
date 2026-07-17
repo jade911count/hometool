@@ -5,6 +5,7 @@
 
 import { parse } from "csv-parse/sync";
 import { parseRocDate } from "./roc";
+import { parseChineseFloors } from "./floors";
 
 const DOWNLOAD_URL = "https://plvr.land.moi.gov.tw/DownloadSeason";
 
@@ -74,22 +75,6 @@ const FULL_WIDTH_DIGITS = "０１２３４５６７８９";
 /** 全形數字轉半形 */
 export function toHalfWidth(s: string): string {
   return s.replace(/[０-９]/g, (c) => String(FULL_WIDTH_DIGITS.indexOf(c)).toString());
-}
-
-const CN_DIGITS: Record<string, number> = {
-  一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
-};
-
-/** 中文樓層數轉數字：「七層」→ 7、「二十一層」→ 21。無法解析回傳 null */
-export function parseChineseFloors(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const s = raw.replace(/層|\s/g, "");
-  if (/^\d+$/.test(s)) return Number(s);
-  const m = s.match(/^([一二三四五六七八九]?)(十?)([一二三四五六七八九]?)$/);
-  if (!m || (!m[1] && !m[2] && !m[3])) return null;
-  const tens = m[2] ? (m[1] ? CN_DIGITS[m[1]] : 1) * 10 : CN_DIGITS[m[1]] ?? 0;
-  const ones = m[2] ? (m[3] ? CN_DIGITS[m[3]] : 0) : 0;
-  return tens + ones || null;
 }
 
 /**
