@@ -51,6 +51,14 @@ export interface CommunityDetail {
     name: string;
     addresses: { clusterKey: string; alias: string }[];
   } | null;
+  /** 細緻價格統計：僅計住宅類且有單價的成交（排除車位、店面極端值） */
+  priceStats: {
+    lastYearAvg: number | null; // 近一年每坪均價（元/坪）
+    max: { unitPricePerPing: number; date: Date } | null; // 歷史最高
+    min: { unitPricePerPing: number; date: Date } | null; // 歷史最低
+  };
+  /** 坪數分佈（<20／20-35／35-50／≥50，僅計住宅類） */
+  areaBuckets: { label: string; count: number }[];
 }
 
 /** 門牌代稱：去掉「臺中市＋行政區」前綴（臺中市北屯區詔安街88號 → 詔安街88號） */
@@ -234,6 +242,40 @@ export async function getCommunityDetail(
   const completionDate =
     txs.map((t) => t.completionDate).find((d) => d !== null) ?? null;
 
+  // 細緻價格統計與坪數分佈：僅計住宅類（排除車位／店面極端值）
+  const yearAgo = Date.now() - 365 * 24 * 3600 * 1000;
+  let lastYearSum = 0;
+  let lastYearN = 0;
+  let max: { unitPricePerPing: number; date: Date } | null = null;
+  let min: { unitPricePerPing: number; date: Date } | null = null;
+  const areaBuckets = [
+    { label: "<20 坪", count: 0 },
+    { label: "20-35 坪", count: 0 },
+    { label: "35-50 坪", count: 0 },
+    { label: "≥50 坪", count: 0 },
+  ];
+  for (let i = 0; i < txs.length; i++) {
+    const t = txs[i];
+    const d = deals[i];
+    if (t.buildingType && !CONDO_TYPE_RE.test(t.buildingType)) continue;
+    if (d.areaPing !== null) {
+      const idx = d.areaPing < 20 ? 0 : d.areaPing < 35 ? 1 : d.areaPing < 50 ? 2 : 3;
+      areaBuckets[idx].count++;
+    }
+    const per = d.unitPricePerPing;
+    if (per === null) continue;
+    if (d.transactionDate.getTime() >= yearAgo) {
+      lastYearSum += per;
+      lastYearN++;
+    }
+    if (!max || per > max.unitPricePerPing) {
+      max = { unitPricePerPing: per, date: d.transactionDate };
+    }
+    if (!min || per < min.unitPricePerPing) {
+      min = { unitPricePerPing: per, date: d.transactionDate };
+    }
+  }
+
   // 最常見建物型態（address 型社區顯示用）
   const typeCount = new Map<string, number>();
   for (const t of txs) {
@@ -270,5 +312,11 @@ export async function getCommunityDetail(
     trend,
     deals,
     registry,
+    priceStats: {
+      lastYearAvg: lastYearN ? Math.round(lastYearSum / lastYearN) : null,
+      max,
+      min,
+    },
+    areaBuckets,
   };
 }

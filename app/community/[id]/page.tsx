@@ -64,8 +64,31 @@ export default async function CommunityPage({
         ? `${(c.avgUnitPricePerPing / 10000).toFixed(1)} 萬/坪`
         : "—",
     },
+    {
+      label: "一年均價",
+      value: c.priceStats.lastYearAvg
+        ? `${(c.priceStats.lastYearAvg / 10000).toFixed(1)} 萬/坪`
+        : "—",
+      note: "近 12 個月",
+    },
+    {
+      label: "歷史最高",
+      value: c.priceStats.max
+        ? `${(c.priceStats.max.unitPricePerPing / 10000).toFixed(1)} 萬/坪`
+        : "—",
+      note: c.priceStats.max ? fmtDate(c.priceStats.max.date) : undefined,
+    },
+    {
+      label: "歷史最低",
+      value: c.priceStats.min
+        ? `${(c.priceStats.min.unitPricePerPing / 10000).toFixed(1)} 萬/坪`
+        : "—",
+      note: c.priceStats.min ? fmtDate(c.priceStats.min.date) : undefined,
+    },
     { label: "成交筆數", value: `${c.txCount} 筆` },
   ];
+
+  const bucketTotal = c.areaBuckets.reduce((s, b) => s + b.count, 0);
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-6">
@@ -127,6 +150,37 @@ export default async function CommunityPage({
           </div>
         ))}
       </section>
+
+      {/* 坪數分佈（僅計住宅類成交） */}
+      {bucketTotal > 0 && (
+        <section className="mb-8 rounded-lg border border-slate-200 bg-white p-4">
+          <h2 className="mb-3 font-bold text-slate-800">
+            坪數分佈{" "}
+            <span className="text-sm font-normal text-slate-400">
+              住宅類 {bucketTotal} 筆
+            </span>
+          </h2>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {c.areaBuckets.map((b) => (
+              <div
+                key={b.label}
+                className={`rounded-lg p-4 text-center ${
+                  b.count > 0
+                    ? "bg-sky-800 text-white"
+                    : "bg-slate-100 text-slate-400"
+                }`}
+              >
+                <div className="text-sm">{b.label}</div>
+                <div className="mt-1 text-lg font-semibold">
+                  {b.count > 0
+                    ? `${b.count} 筆（${Math.round((b.count / bucketTotal) * 100)}%）`
+                    : "—"}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 成交趨勢 */}
       <section className="mb-8 rounded-lg border border-slate-200 bg-white p-4">
