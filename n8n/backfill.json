@@ -1,0 +1,170 @@
+{
+  "name": "hometool 歷史回補（一次性）",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## hometool 歷史回補（一次性）\n\n回補 101S1–113S3 共 51 季（113S4 之後已由定期匯入涵蓋）。\n每批 4 季、共 13 批循序呼叫，全部完成後重建社區一次。\n預估 20–40 分鐘；每季匯入具冪等性，中斷後重跑整個 workflow 也安全。\n\n### 設定\n1. 「參數設定」確認 Zeabur 網址\n2. 兩個 HTTP 節點掛既有 Header Auth 憑證\n3. 按 Execute Workflow，跑完即可刪除或停用本 workflow\n\n注意：預售屋（B 檔）自 110S3 才揭露，較早季別會回報 not-available，屬正常。",
+        "height": 380,
+        "width": 400
+      },
+      "id": "note-1",
+      "name": "說明",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-660, -200]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "手動執行",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-180, -60]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "base-url",
+              "name": "baseUrl",
+              "type": "string",
+              "value": "https://hometool.zeabur.app"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-config",
+      "name": "參數設定",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [40, -60]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 產生回補批次：101S1 ～ 113S3，每 4 季一批（一批一個 item，HTTP 節點會逐 item 循序呼叫）\nconst END = { year: 113, quarter: 3 }; // 113S4 起已由定期匯入涵蓋\nconst baseUrl = $input.first().json.baseUrl;\nconst batches = [];\nlet cur = [];\nfor (let y = 101; y <= END.year; y++) {\n  for (let q = 1; q <= 4; q++) {\n    if (y === END.year && q > END.quarter) break;\n    cur.push(`${y}S${q}`);\n    if (cur.length === 4) {\n      batches.push(cur.join(\",\"));\n      cur = [];\n    }\n  }\n}\nif (cur.length) batches.push(cur.join(\",\"));\nreturn batches.map((seasons) => ({ json: { baseUrl, seasons } }));"
+      },
+      "id": "code-batches",
+      "name": "產生季別批次",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, -60]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.baseUrl }}/api/admin/import?seasons={{ $json.seasons }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 600000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 5000
+            }
+          }
+        }
+      },
+      "id": "http-import",
+      "name": "匯入歷史季別（每批 4 季）",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, -60],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 10000
+    },
+    {
+      "parameters": {
+        "jsCode": "// 彙整 13 批結果為單一 item，讓重建社區只執行一次\nconst runs = $input.all().map((i) => i.json);\nconst flat = runs.flatMap((r) => r.results ?? []);\nconst summary = {\n  baseUrl: $('參數設定').first().json.baseUrl,\n  batches: runs.length,\n  imported: flat.filter((r) => r.status === 'imported').length,\n  notAvailable: flat.filter((r) => r.status === 'not-available').length,\n  errors: flat.filter((r) => r.status === 'error'),\n  totalInDb: runs.at(-1)?.totalInDb ?? null,\n};\nreturn [{ json: summary }];"
+      },
+      "id": "code-summary",
+      "name": "彙整結果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, -60]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.baseUrl }}/api/admin/communities",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "http-rebuild",
+      "name": "重建社區",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, -60],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "手動執行": {
+      "main": [
+        [
+          {
+            "node": "參數設定",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "參數設定": {
+      "main": [
+        [
+          {
+            "node": "產生季別批次",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "產生季別批次": {
+      "main": [
+        [
+          {
+            "node": "匯入歷史季別（每批 4 季）",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "匯入歷史季別（每批 4 季）": {
+      "main": [
+        [
+          {
+            "node": "彙整結果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "彙整結果": {
+      "main": [
+        [
+          {
+            "node": "重建社區",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
