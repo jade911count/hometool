@@ -49,10 +49,12 @@ export async function POST(request: Request) {
   const limit = Math.min(Number(searchParams.get("limit")) || 40, 200);
 
   // 尚未嘗試過地理編碼的地址（geoPrecision 為 null 且有可用的正規化地址）
-  const pending = await prisma.transaction.findMany({
+  // 用 groupBy 讓去重在資料庫層執行；Prisma 的 distinct 是引擎內去重，
+  // 會把全部待處理列撈回來，在歷史回補後的資料量下會直接爆掉
+  const pending = await prisma.transaction.groupBy({
+    by: ["normalizedAddress"],
     where: { geoPrecision: null, normalizedAddress: { not: null } },
-    select: { normalizedAddress: true },
-    distinct: ["normalizedAddress"],
+    orderBy: { normalizedAddress: "asc" },
     take: limit,
   });
 
