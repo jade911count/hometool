@@ -93,27 +93,32 @@ export default function CommunitySearch() {
               </li>
             ))
           )}
-          {/* 官方名冊中尚未綁定門牌的社區：搜得到名稱與戶數，但還沒有交易資料入口 */}
+          {/* 官方名冊中尚未綁定門牌的社區：點擊進名冊頁連結門牌 */}
           {registryHits.length > 0 && (
             <>
               <li className="border-t border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-400">
-                官方名冊（尚未連結門牌，可從中古社區頁綁定）
+                官方名冊（點擊以連結門牌）
               </li>
               {registryHits.map((h) => (
-                <li
-                  key={h.id}
-                  className="flex items-baseline justify-between gap-2 px-3 py-2"
-                >
-                  <span className="text-slate-500">
-                    {h.name}
-                    <span className="ml-1 rounded bg-amber-50 px-1 py-0.5 text-[10px] text-amber-600">
-                      名冊
+                <li key={h.id}>
+                  <button
+                    className="flex w-full items-baseline justify-between gap-2 px-3 py-2 text-left hover:bg-slate-50"
+                    onClick={() => {
+                      setOpen(false);
+                      router.push(`/registry/${h.id}`);
+                    }}
+                  >
+                    <span className="text-slate-600">
+                      {h.name}
+                      <span className="ml-1 rounded bg-amber-50 px-1 py-0.5 text-[10px] text-amber-600">
+                        名冊
+                      </span>
                     </span>
-                  </span>
-                  <span className="shrink-0 text-xs text-slate-400">
-                    {h.district}
-                    {h.households ? `｜${h.households} 戶` : ""}
-                  </span>
+                    <span className="shrink-0 text-xs text-slate-400">
+                      {h.district}
+                      {h.households ? `｜${h.households} 戶` : ""}
+                    </span>
+                  </button>
                 </li>
               ))}
             </>
