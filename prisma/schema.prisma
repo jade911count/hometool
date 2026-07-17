@@ -69,7 +69,8 @@ model Community {
   name                String // 建案名稱或門牌代稱
   district            String // 鄉鎮市區
   source              String    @default("presale") // presale / address
-  clusterKey          String? // source=address 的分群鍵（正規化地址）
+  clusterKey          String? // source=address 未綁定名冊時的分群鍵（正規化地址）；已綁定（registryId 非空）時為 null
+  registryId          String? // 綁定的官方名冊 id；門牌清單見 CommunityBinding
   address             String? // 代表地址（該建案交易中最常見的門牌）
   latitude            Float? // 已定位交易的座標平均
   longitude           Float?
@@ -84,27 +85,39 @@ model Community {
   @@unique([name, district])
   @@index([txCount])
   @@index([clusterKey])
+  @@index([registryId])
 }
 
 // 官方社區名冊：臺中市公寓大廈報備資料（都發局開放資料，約每半年更新）
-// 名冊本身沒有門牌，由使用者（房仲）把名冊社區「綁定」到中古門牌社區
-// （boundClusterKey = Community.clusterKey），該社區即獲得正式名稱與戶數
+// 名冊本身沒有門牌，由使用者（房仲）把名冊社區「綁定」到中古門牌社區，
+// 該社區即獲得正式名稱與戶數；一個名冊可綁多個門牌（多棟社區），合併為一個社區條目
 model CondoRegistry {
-  id              String    @id @default(cuid())
-  licenseSerial   String // 使照序號（同一張使照可有多個報備組織，如住宅＋店面）
-  name            String // 公寓大廈名稱
-  orgType         String? // 管理組織型態（管理委員會／管理負責人）
-  households      Int? // 戶數
-  district        String // 行政區
-  boundClusterKey String?   @unique // 綁定的中古社區分群鍵（正規化地址）
-  boundAt         DateTime? // 綁定時間（審計）
-  boundByIp       String? // 綁定者 IP（未登入階段的審計欄位）
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id            String             @id @default(cuid())
+  licenseSerial String // 使照序號（同一張使照可有多個報備組織，如住宅＋店面）
+  name          String // 公寓大廈名稱
+  orgType       String? // 管理組織型態（管理委員會／管理負責人）
+  households    Int? // 戶數
+  district      String // 行政區
+  bindings      CommunityBinding[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   @@unique([licenseSerial, name]) // 重匯 upsert 鍵
   @@index([name])
   @@index([district])
+}
+
+// 名冊 ↔ 中古門牌的綁定（一名冊多門牌；一門牌只屬一個名冊）
+// 名冊重匯（整表重建）時由匯入端點依（使照序號＋名稱）搬遷保留
+model CommunityBinding {
+  id         String        @id @default(cuid())
+  registryId String
+  registry   CondoRegistry @relation(fields: [registryId], references: [id], onDelete: Cascade)
+  clusterKey String        @unique // 門牌社區分群鍵（正規化地址）
+  boundAt    DateTime      @default(now()) // 綁定時間（審計）
+  boundByIp  String? // 綁定者 IP（未登入階段的審計欄位）
+
+  @@index([registryId])
 }
 
 // 地理編碼快取：同一個正規化地址只查一次外部服務

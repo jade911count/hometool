@@ -5,11 +5,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { isAuthorized, unauthorized } from "@/lib/admin-auth";
-import { addressAlias } from "@/lib/community";
+import { addressAlias, CONDO_TYPE_RE } from "@/lib/community";
 import { SQM_PER_PING } from "@/lib/types";
-
-/** 歸戶對象：有社區概念的集合住宅（透天、店面、廠辦排除） */
-const CONDO_TYPE_RE = /住宅大樓|華廈|公寓|套房/;
 
 interface TxRow {
   district: string;
@@ -55,6 +52,25 @@ function newAgg(
     txCount: 0,
     lastDealDate: null,
   };
+}
+
+/** 合併兩個聚合（同名冊多門牌 → 單一社區條目） */
+function mergeAgg(target: Agg, src: Agg) {
+  target.txCount += src.txCount;
+  for (const [addr, n] of src.addresses) {
+    target.addresses.set(addr, (target.addresses.get(addr) ?? 0) + n);
+  }
+  target.latSum += src.latSum;
+  target.lngSum += src.lngSum;
+  target.geoCount += src.geoCount;
+  target.unitPriceSum += src.unitPriceSum;
+  target.unitPriceCount += src.unitPriceCount;
+  if (
+    src.lastDealDate &&
+    (!target.lastDealDate || src.lastDealDate > target.lastDealDate)
+  ) {
+    target.lastDealDate = src.lastDealDate;
+  }
 }
 
 function accumulate(g: Agg, r: TxRow) {
@@ -151,7 +167,37 @@ export async function POST(request: Request) {
     }
   );
 
-  const data = [...groups.values()].map((g) => ({
+  // 一名冊多門牌：已綁定的門牌聚合合併為單一社區條目，名稱／戶數取自名冊
+  const bindings = await prisma.communityBinding.findMany({
+    select: {
+      clusterKey: true,
+      registry: {
+        select: { id: true, name: true, district: true, households: true },
+      },
+    },
+  });
+  const bindingByKey = new Map(bindings.map((b) => [b.clusterKey, b.registry]));
+
+  const standalone: Agg[] = [];
+  const mergedByRegistry = new Map<
+    string,
+    { agg: Agg; households: number | null }
+  >();
+  for (const g of groups.values()) {
+    const reg = g.clusterKey ? bindingByKey.get(g.clusterKey) : undefined;
+    if (!reg) {
+      standalone.push(g);
+      continue;
+    }
+    let m = mergedByRegistry.get(reg.id);
+    if (!m) {
+      m = { agg: newAgg(reg.name, reg.district, "address", null), households: reg.households };
+      mergedByRegistry.set(reg.id, m);
+    }
+    mergeAgg(m.agg, g);
+  }
+
+  const rowOf = (g: Agg) => ({
     name: g.name,
     district: g.district,
     source: g.source,
@@ -165,16 +211,20 @@ export async function POST(request: Request) {
       ? Math.round((g.unitPriceSum / g.unitPriceCount) * SQM_PER_PING)
       : null,
     lastDealDate: g.lastDealDate,
-  }));
-
-  // 已綁定官方名冊的中古社區：以名冊名稱＋戶數覆蓋門牌代稱（依 clusterKey 對應）
-  const boundRegistries = await prisma.condoRegistry.findMany({
-    where: { boundClusterKey: { not: null } },
-    select: { boundClusterKey: true, name: true, households: true },
   });
-  const registryMap = new Map(
-    boundRegistries.map((r) => [r.boundClusterKey!, r])
-  );
+
+  const data = [
+    ...standalone.map((g) => ({
+      ...rowOf(g),
+      registryId: null as string | null,
+      registryHouseholds: null as number | null,
+    })),
+    ...[...mergedByRegistry.entries()].map(([registryId, m]) => ({
+      ...rowOf(m.agg),
+      registryId,
+      registryHouseholds: m.households,
+    })),
+  ];
 
   // 重建前保留使照階段補上的欄位（戶數／建商），依（名稱＋區）還原
   const enriched = await prisma.community.findMany({
@@ -185,13 +235,11 @@ export async function POST(request: Request) {
     enriched.map((e) => [`${e.district}|${e.name}`, e])
   );
 
-  const rows = data.map((d) => {
-    const bound = d.clusterKey ? registryMap.get(d.clusterKey) : undefined;
+  const rows = data.map(({ registryHouseholds, ...d }) => {
     const prev = enrichedMap.get(`${d.district}|${d.name}`);
     return {
       ...d,
-      name: bound?.name ?? d.name,
-      households: bound?.households ?? prev?.households ?? null,
+      households: registryHouseholds ?? prev?.households ?? null,
       builder: prev?.builder ?? null,
     };
   });

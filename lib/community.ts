@@ -45,12 +45,77 @@ export interface CommunityDetail {
   avgUnitPricePerPing: number | null; // 元/坪
   trend: CommunityTrendPoint[]; // 依季別由舊到新
   deals: CommunityDeal[]; // 由新到舊
-  registry: { id: string; name: string } | null; // 已綁定的官方名冊（address 型社區）
+  /** 已綁定的官方名冊（address 型社區）；addresses = 該名冊所有已綁門牌 */
+  registry: {
+    id: string;
+    name: string;
+    addresses: { clusterKey: string; alias: string }[];
+  } | null;
 }
 
 /** 門牌代稱：去掉「臺中市＋行政區」前綴（臺中市北屯區詔安街88號 → 詔安街88號） */
 export function addressAlias(normalizedAddress: string, district: string): string {
   return normalizedAddress.replace("臺中市", "").replace(district, "");
+}
+
+/** 歸戶對象：有社區概念的集合住宅（透天、店面、廠辦排除） */
+export const CONDO_TYPE_RE = /住宅大樓|華廈|公寓|套房/;
+
+/** 依 rebuild 同一套規則計算一組門牌的社區統計（bind／unbind 即時改寫社區列用） */
+export async function computeAddressCommunityStats(clusterKeys: string[]) {
+  const txs = await prisma.transaction.findMany({
+    where: {
+      category: "sale",
+      normalizedAddress: { in: clusterKeys },
+      buildingType: { not: null },
+    },
+    select: {
+      buildingType: true,
+      address: true,
+      transactionDate: true,
+      unitPrice: true,
+      latitude: true,
+      longitude: true,
+    },
+  });
+
+  const addresses = new Map<string, number>();
+  let latSum = 0;
+  let lngSum = 0;
+  let geoCount = 0;
+  let unitPriceSum = 0;
+  let unitPriceCount = 0;
+  let txCount = 0;
+  let lastDealDate: Date | null = null;
+  for (const r of txs) {
+    if (!r.buildingType || !CONDO_TYPE_RE.test(r.buildingType)) continue;
+    txCount++;
+    if (r.address) addresses.set(r.address, (addresses.get(r.address) ?? 0) + 1);
+    if (r.latitude !== null && r.longitude !== null) {
+      latSum += r.latitude;
+      lngSum += r.longitude;
+      geoCount++;
+    }
+    if (r.unitPrice !== null) {
+      unitPriceSum += r.unitPrice;
+      unitPriceCount++;
+    }
+    if (!lastDealDate || r.transactionDate > lastDealDate) {
+      lastDealDate = r.transactionDate;
+    }
+  }
+
+  return {
+    address:
+      [...addresses.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+    latitude: geoCount ? latSum / geoCount : null,
+    longitude: geoCount ? lngSum / geoCount : null,
+    txCount,
+    avgUnitPricePerPing: unitPriceCount
+      ? Math.round((unitPriceSum / unitPriceCount) * SQM_PER_PING)
+      : null,
+    lastDealDate,
+  };
 }
 
 /** 季別排序鍵："114S3" → 1143 */
@@ -65,9 +130,38 @@ export async function getCommunityDetail(
   const community = await prisma.community.findUnique({ where: { id } });
   if (!community) return null;
 
+  // address 型社區的交易門牌：已綁名冊 → 名冊所有門牌；未綁 → 自身分群鍵
+  let registry: CommunityDetail["registry"] = null;
+  let clusterKeys: string[] = [];
+  if (community.source === "address") {
+    if (community.registryId) {
+      const reg = await prisma.condoRegistry.findUnique({
+        where: { id: community.registryId },
+        select: {
+          id: true,
+          name: true,
+          bindings: { select: { clusterKey: true }, orderBy: { boundAt: "asc" } },
+        },
+      });
+      if (reg) {
+        clusterKeys = reg.bindings.map((b) => b.clusterKey);
+        registry = {
+          id: reg.id,
+          name: reg.name,
+          addresses: clusterKeys.map((k) => ({
+            clusterKey: k,
+            alias: addressAlias(k, community.district),
+          })),
+        };
+      }
+    } else if (community.clusterKey) {
+      clusterKeys = [community.clusterKey];
+    }
+  }
+
   const where =
-    community.source === "address" && community.clusterKey
-      ? { category: "sale", normalizedAddress: community.clusterKey }
+    community.source === "address"
+      ? { category: "sale", normalizedAddress: { in: clusterKeys } }
       : {
           category: "presale",
           projectName: community.name,
@@ -148,15 +242,6 @@ export async function getCommunityDetail(
   }
   const buildingType =
     [...typeCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-
-  // 中古門牌社區已綁定的官方名冊（詳情頁顯示綁定狀態／解除入口用）
-  const registry =
-    community.source === "address" && community.clusterKey
-      ? await prisma.condoRegistry.findUnique({
-          where: { boundClusterKey: community.clusterKey },
-          select: { id: true, name: true },
-        })
-      : null;
 
   return {
     id: community.id,

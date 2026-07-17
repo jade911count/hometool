@@ -81,38 +81,63 @@ export async function POST(request: Request) {
     return Response.json({ error: "registry csv parsed to 0 rows" }, { status: 502 });
   }
 
-  // 重建前保留既有綁定（依使照序號＋名稱還原審計欄位）
-  const bound = await prisma.condoRegistry.findMany({
-    where: { boundClusterKey: { not: null } },
+  // 整表重建會連動刪除綁定（FK cascade）且名冊 id 全部換新：
+  // 先記下綁定（依使照序號＋名稱），重建後對應新 id 掛回，並同步改掛社區列
+  const bound = await prisma.communityBinding.findMany({
     select: {
-      licenseSerial: true,
-      name: true,
-      boundClusterKey: true,
+      clusterKey: true,
       boundAt: true,
       boundByIp: true,
+      registryId: true,
+      registry: { select: { licenseSerial: true, name: true } },
     },
   });
-  const boundMap = new Map(bound.map((b) => [`${b.licenseSerial}|${b.name}`, b]));
 
   await prisma.condoRegistry.deleteMany({});
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     await prisma.condoRegistry.createMany({
-      data: rows.slice(i, i + CHUNK_SIZE).map((r) => {
-        const prev = boundMap.get(`${r.licenseSerial}|${r.name}`);
-        return {
-          ...r,
-          boundClusterKey: prev?.boundClusterKey ?? null,
-          boundAt: prev?.boundAt ?? null,
-          boundByIp: prev?.boundByIp ?? null,
-        };
-      }),
+      data: rows.slice(i, i + CHUNK_SIZE),
       skipDuplicates: true,
     });
+  }
+
+  let restored = 0;
+  if (bound.length) {
+    const fresh = await prisma.condoRegistry.findMany({
+      where: {
+        OR: bound.map((b) => ({
+          licenseSerial: b.registry.licenseSerial,
+          name: b.registry.name,
+        })),
+      },
+      select: { id: true, licenseSerial: true, name: true },
+    });
+    const idByKey = new Map(
+      fresh.map((r) => [`${r.licenseSerial}|${r.name}`, r.id])
+    );
+    for (const b of bound) {
+      const newId = idByKey.get(`${b.registry.licenseSerial}|${b.registry.name}`);
+      if (!newId) continue; // 該名冊已從新版清冊消失：綁定連同捨棄（回報數字供檢核）
+      await prisma.communityBinding.create({
+        data: {
+          registryId: newId,
+          clusterKey: b.clusterKey,
+          boundAt: b.boundAt,
+          boundByIp: b.boundByIp,
+        },
+      });
+      await prisma.community.updateMany({
+        where: { registryId: b.registryId },
+        data: { registryId: newId },
+      });
+      restored++;
+    }
   }
 
   return Response.json({
     imported: rows.length,
     skipped,
-    boundPreserved: bound.length,
+    boundPreserved: restored,
+    boundDropped: bound.length - restored,
   });
 }

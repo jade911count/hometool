@@ -1,8 +1,8 @@
 "use client";
 
 // 中古門牌社區的官方名冊綁定元件（詳情頁用）
-// 未綁定：搜尋公寓大廈報備名冊 → 選定後綁定，社區獲得正式名稱＋戶數
-// 已綁定：顯示來源說明與解除綁定入口
+// 未綁定：搜尋公寓大廈報備名冊 → 選定後綁定；若名冊已綁其他門牌，本門牌會「併入」該社區（多棟合併）
+// 已綁定：顯示來源說明與所有已綁門牌，可逐一解除
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -11,7 +11,11 @@ import type { RegistryHit } from "@/lib/types";
 interface Props {
   communityId: string;
   district: string;
-  bound: { id: string; name: string } | null;
+  bound: {
+    id: string;
+    name: string;
+    addresses: { clusterKey: string; alias: string }[];
+  } | null;
 }
 
 export default function RegistryBind({ communityId, district, bound }: Props) {
@@ -31,7 +35,10 @@ export default function RegistryBind({ communityId, district, bound }: Props) {
         setOpen(false);
         return;
       }
-      const res = await fetch(`/api/communities?q=${encodeURIComponent(term)}`);
+      // registry=all：包含已綁定的名冊，選到即為「併入既有社區」
+      const res = await fetch(
+        `/api/communities?q=${encodeURIComponent(term)}&registry=all`
+      );
       if (res.ok) {
         const data = await res.json();
         // 同行政區的名冊排前面（跨區綁定通常是誤選）
@@ -55,7 +62,7 @@ export default function RegistryBind({ communityId, district, bound }: Props) {
   }, []);
 
   async function bind(registryId: string, name: string) {
-    if (!confirm(`確定將此門牌社區綁定為「${name}」？`)) return;
+    if (!confirm(`確定將此門牌社區綁定為「${name}」？\n（若該名冊已綁其他門牌，本門牌將併入同一社區）`)) return;
     setBusy(true);
     setError("");
     const res = await fetch("/api/communities/bind", {
@@ -64,24 +71,29 @@ export default function RegistryBind({ communityId, district, bound }: Props) {
       body: JSON.stringify({ registryId, communityId }),
     });
     setBusy(false);
+    const data = await res.json().catch(() => null);
     if (res.ok) {
       setOpen(false);
-      router.refresh();
+      // 併入既有社區時本頁條目已被合併，導向合併後的社區頁
+      if (data?.communityId && data.communityId !== communityId) {
+        router.push(`/community/${data.communityId}`);
+      } else {
+        router.refresh();
+      }
     } else {
-      const data = await res.json().catch(() => null);
       setError(data?.error ?? "綁定失敗，請稍後再試");
     }
   }
 
-  async function unbind() {
+  async function unbind(clusterKey: string, alias: string) {
     if (!bound) return;
-    if (!confirm(`確定解除與「${bound.name}」的綁定？社區名稱將還原為門牌代稱`)) return;
+    if (!confirm(`確定將「${alias}」自「${bound.name}」解除？該門牌將還原為獨立社區`)) return;
     setBusy(true);
     setError("");
     const res = await fetch("/api/communities/bind", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ registryId: bound.id }),
+      body: JSON.stringify({ registryId: bound.id, clusterKey }),
     });
     setBusy(false);
     if (res.ok) {
@@ -94,17 +106,32 @@ export default function RegistryBind({ communityId, district, bound }: Props) {
 
   if (bound) {
     return (
-      <p className="mt-1 text-xs text-slate-400">
-        社區名稱來自臺中市公寓大廈報備資料（使用者綁定）
-        <button
-          className="ml-2 text-blue-600 hover:underline disabled:opacity-50"
-          onClick={unbind}
-          disabled={busy}
-        >
-          解除綁定
-        </button>
-        {error && <span className="ml-2 text-red-500">{error}</span>}
-      </p>
+      <div className="mt-1 text-xs text-slate-400">
+        <p>
+          社區名稱來自臺中市公寓大廈報備資料（使用者綁定）。
+          其他棟門牌可在該門牌社區頁綁定同一名冊併入。
+        </p>
+        <p className="mt-1 flex flex-wrap items-center gap-1">
+          <span>包含門牌：</span>
+          {bound.addresses.map((a) => (
+            <span
+              key={a.clusterKey}
+              className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-slate-600"
+            >
+              {a.alias}
+              <button
+                className="text-slate-400 hover:text-red-500 disabled:opacity-50"
+                title="解除此門牌"
+                onClick={() => unbind(a.clusterKey, a.alias)}
+                disabled={busy}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </p>
+        {error && <p className="mt-1 text-red-500">{error}</p>}
+      </div>
     );
   }
 
