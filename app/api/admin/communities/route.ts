@@ -74,67 +74,82 @@ function accumulate(g: Agg, r: TxRow) {
   }
 }
 
+/** 分頁掃描交易（全表載入在歷史回補後會撞記憶體），逐筆交給 onRow 聚合 */
+async function forEachTransaction(
+  where: Record<string, unknown>,
+  onRow: (r: TxRow & { projectName: string | null; normalizedAddress: string | null; buildingType: string | null }) => void
+): Promise<number> {
+  const PAGE = 20000;
+  let cursor: string | undefined;
+  let count = 0;
+  for (;;) {
+    const page = await prisma.transaction.findMany({
+      where,
+      select: {
+        serialNo: true,
+        projectName: true,
+        normalizedAddress: true,
+        buildingType: true,
+        district: true,
+        address: true,
+        transactionDate: true,
+        unitPrice: true,
+        latitude: true,
+        longitude: true,
+      },
+      orderBy: { serialNo: "asc" },
+      take: PAGE,
+      ...(cursor ? { cursor: { serialNo: cursor }, skip: 1 } : {}),
+    });
+    for (const r of page) onRow(r);
+    count += page.length;
+    if (page.length < PAGE) return count;
+    cursor = page[page.length - 1].serialNo;
+  }
+}
+
 export async function POST(request: Request) {
   if (!isAuthorized(request)) return unauthorized();
 
   const groups = new Map<string, Agg>();
 
   // 來源一：預售建案
-  const presale = await prisma.transaction.findMany({
-    where: { category: "presale", projectName: { not: null }, cancellation: null },
-    select: {
-      projectName: true,
-      district: true,
-      address: true,
-      transactionDate: true,
-      unitPrice: true,
-      latitude: true,
-      longitude: true,
-    },
-  });
-  for (const r of presale) {
-    const key = `p|${r.district}|${r.projectName}`;
-    let g = groups.get(key);
-    if (!g) {
-      g = newAgg(r.projectName!, r.district, "presale", null);
-      groups.set(key, g);
+  const presaleCount = await forEachTransaction(
+    { category: "presale", projectName: { not: null }, cancellation: null },
+    (r) => {
+      const key = `p|${r.district}|${r.projectName}`;
+      let g = groups.get(key);
+      if (!g) {
+        g = newAgg(r.projectName!, r.district, "presale", null);
+        groups.set(key, g);
+      }
+      accumulate(g, r);
     }
-    accumulate(g, r);
-  }
+  );
 
   // 來源二：中古集合住宅門牌歸戶
-  const sale = await prisma.transaction.findMany({
-    where: {
+  await forEachTransaction(
+    {
       category: "sale",
       normalizedAddress: { not: null },
       buildingType: { not: null }, // 集合住宅細分於下方以 regex 過濾
     },
-    select: {
-      normalizedAddress: true,
-      buildingType: true,
-      district: true,
-      address: true,
-      transactionDate: true,
-      unitPrice: true,
-      latitude: true,
-      longitude: true,
-    },
-  });
-  for (const r of sale) {
-    if (!r.buildingType || !CONDO_TYPE_RE.test(r.buildingType)) continue;
-    const key = `a|${r.normalizedAddress}`;
-    let g = groups.get(key);
-    if (!g) {
-      g = newAgg(
-        addressAlias(r.normalizedAddress!, r.district),
-        r.district,
-        "address",
-        r.normalizedAddress
-      );
-      groups.set(key, g);
+    (r) => {
+      if (!r.buildingType || !CONDO_TYPE_RE.test(r.buildingType)) return;
+      const key = `a|${r.normalizedAddress}`;
+      let g = groups.get(key);
+      if (!g) {
+        g = newAgg(
+          addressAlias(r.normalizedAddress!, r.district),
+          r.district,
+          "address",
+          r.normalizedAddress
+        );
+        groups.set(key, g);
+      }
+      accumulate(g, r);
     }
-    accumulate(g, r);
-  }
+  );
 
   const data = [...groups.values()].map((g) => ({
     name: g.name,
@@ -170,27 +185,32 @@ export async function POST(request: Request) {
     enriched.map((e) => [`${e.district}|${e.name}`, e])
   );
 
-  await prisma.$transaction([
-    prisma.community.deleteMany({}),
-    prisma.community.createMany({
-      data: data.map((d) => {
-        const bound = d.clusterKey ? registryMap.get(d.clusterKey) : undefined;
-        const prev = enrichedMap.get(`${d.district}|${d.name}`);
-        return {
-          ...d,
-          name: bound?.name ?? d.name,
-          households: bound?.households ?? prev?.households ?? null,
-          builder: prev?.builder ?? null,
-        };
-      }),
+  const rows = data.map((d) => {
+    const bound = d.clusterKey ? registryMap.get(d.clusterKey) : undefined;
+    const prev = enrichedMap.get(`${d.district}|${d.name}`);
+    return {
+      ...d,
+      name: bound?.name ?? d.name,
+      households: bound?.households ?? prev?.households ?? null,
+      builder: prev?.builder ?? null,
+    };
+  });
+
+  // 分批寫入：單一句 createMany 在社區數放大後會超過資料庫參數上限
+  // （與匯入端點同 pattern：先清後寫、失敗重跑即復原）
+  const CHUNK_SIZE = 1000;
+  await prisma.community.deleteMany({});
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    await prisma.community.createMany({
+      data: rows.slice(i, i + CHUNK_SIZE),
       skipDuplicates: true,
-    }),
-  ]);
+    });
+  }
 
   return Response.json({
     communities: data.length,
     presaleCommunities: data.filter((d) => d.source === "presale").length,
     addressCommunities: data.filter((d) => d.source === "address").length,
-    presaleTransactions: presale.length,
+    presaleTransactions: presaleCount,
   });
 }
