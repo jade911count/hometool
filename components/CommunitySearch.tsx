@@ -55,14 +55,53 @@ export default function CommunitySearch({
 
   return (
     <div ref={boxRef} className="relative">
-      <input
-        type="search"
-        placeholder="輸入社區（建案名稱）"
-        className="w-48 rounded border border-slate-300 px-2 py-1"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onFocus={() => hits.length > 0 && setOpen(true)}
-      />
+      <div className="flex items-center gap-2">
+        <input
+          type="search"
+          aria-label="搜尋社區、生活圈或建商"
+          placeholder="搜尋社區、生活圈或建商，例如：草悟道 / 惠宇"
+          className="w-64 rounded border border-slate-300 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-sky-300"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onFocus={() => q.trim() && hits.length > 0 && setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            const term = q.trim();
+            if (!term) return;
+            e.preventDefault();
+            if (area && nearby.length > 0 && onArea) {
+              setOpen(false);
+              onArea(area.latitude, area.longitude);
+              return;
+            }
+            if (hits.length > 0) {
+              setOpen(false);
+              router.push(`/community/${hits[0].id}`);
+              return;
+            }
+            if (registryHits.length > 0) {
+              setOpen(false);
+              router.push(`/registry/${registryHits[0].id}`);
+            }
+          }}
+        />
+        {q && (
+          <button
+            type="button"
+            className="rounded border border-slate-300 bg-slate-100 px-2 py-1 text-sm text-slate-600 hover:bg-slate-200"
+            onClick={() => {
+              setQ("");
+              setHits([]);
+              setRegistryHits([]);
+              setArea(null);
+              setNearby([]);
+              setOpen(false);
+            }}
+          >
+            清除
+          </button>
+        )}
+      </div>
       {open && (
         <ul className="absolute left-0 top-full z-[1100] mt-1 max-h-80 w-72 overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
           {/* 區域關鍵字命中：附近社區 */}

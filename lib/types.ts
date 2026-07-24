@@ -72,6 +72,36 @@ export interface AddressDetail {
   })[];
 }
 
+export interface AreaStatsSeriesItem {
+  month: string;
+  cnt: number | null;
+  avgUnitPricePerPing: number | null;
+}
+
+export interface AreaStatsResult {
+  area: string;
+  center: {
+    lat: number;
+    lng: number;
+  };
+  radiusKm: number;
+  stats: {
+    txCount: number | null;
+    avgUnitPricePerPing: number | null;
+    medianUnitPricePerPing: number | null;
+    stddevUnitPricePerPing: number | null;
+    medianTotalPrice: number | null;
+  };
+  compare: {
+    avg1y: number | null;
+    cnt1y: number | null;
+    avg5y: number | null;
+    cnt5y: number | null;
+  };
+  communityCount: number;
+  series: AreaStatsSeriesItem[];
+}
+
 export const TAICHUNG_DISTRICTS = [
   "中區", "東區", "南區", "西區", "北區",
   "北屯區", "西屯區", "南屯區",

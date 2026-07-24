@@ -8,6 +8,7 @@ import {
   TileLayer,
   CircleMarker,
   Marker,
+  Circle,
   Popup,
   Tooltip,
   useMapEvents,
@@ -18,11 +19,13 @@ import {
   type TransactionPoint,
   type AddressDetail,
   type CommunityMapHit,
+  type AreaStatsResult,
   TAICHUNG_DISTRICTS,
   BUILDING_TYPES,
 } from "@/lib/types";
 import CommunitySearch from "./CommunitySearch";
 import { floorLabel } from "@/lib/floors";
+import { TAICHUNG_AREAS, matchArea, distanceKm } from "@/lib/areas";
 
 // 台中車站附近作為初始中心
 const INITIAL_CENTER: [number, number] = [24.1439, 120.6794];
@@ -70,9 +73,10 @@ function formatWan(price: number): string {
   return `${Math.round(price / 10000).toLocaleString()} 萬`;
 }
 
-function MapEvents({ onMoveEnd }: { onMoveEnd: (map: LeafletMap) => void }) {
+function MapEvents({ onMoveEnd, onZoom }: { onMoveEnd: (map: LeafletMap) => void; onZoom: (z: number) => void }) {
   const map = useMapEvents({
     moveend: () => onMoveEnd(map),
+    zoomend: () => onZoom(map.getZoom()),
   });
   return null;
 }
@@ -80,10 +84,23 @@ function MapEvents({ onMoveEnd }: { onMoveEnd: (map: LeafletMap) => void }) {
 export default function TransactionMap() {
   const [points, setPoints] = useState<TransactionPoint[]>([]);
   const [communities, setCommunities] = useState<CommunityMapHit[]>([]);
+  const [highlightedArea, setHighlightedArea] = useState<null | (typeof TAICHUNG_AREAS)[number]>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [detail, setDetail] = useState<AddressDetail | null>(null);
+  const [areaStats, setAreaStats] = useState<AreaStatsResult | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const mapRef = useRef<LeafletMap | null>(null);
+  const [prevView, setPrevView] = useState<null | { lat: number; lng: number; zoom: number }>(null);
+  const [currentZoom, setCurrentZoom] = useState<number>(INITIAL_ZOOM);
+  const [showAreas, setShowAreas] = useState<boolean>(true);
+  const [mapReady, setMapReady] = useState(false);
+  const filteredCommunities = communities.filter((c) => {
+    if (!highlightedArea) return true;
+    if (c.latitude === null || c.longitude === null) return false;
+    return distanceKm(c.latitude, c.longitude, highlightedArea.latitude, highlightedArea.longitude) <= highlightedArea.radiusKm;
+  });
 
   const loadPoints = useCallback(async (map: LeafletMap) => {
     const b = map.getBounds();
@@ -130,6 +147,117 @@ export default function TransactionMap() {
     const res = await fetch(`/api/address?q=${encodeURIComponent(normalizedAddress)}`);
     if (res.ok) setDetail(await res.json());
   }, []);
+
+  // 點擊生活圈後放大並高亮範圍（並記錄先前視角）
+  const openArea = useCallback((area: (typeof TAICHUNG_AREAS)[number]) => {
+    if (!mapRef.current) return;
+    const z = mapRef.current.getZoom();
+    const c = mapRef.current.getCenter();
+    setPrevView({ lat: c.lat, lng: c.lng, zoom: z });
+    mapRef.current.setView([area.latitude, area.longitude], 17);
+    setHighlightedArea(area);
+  }, []);
+
+  const clearHighlightedArea = useCallback(() => {
+    if (prevView && mapRef.current) {
+      mapRef.current.setView([prevView.lat, prevView.lng], prevView.zoom);
+    }
+    setHighlightedArea(null);
+    setPrevView(null);
+  }, [prevView]);
+
+  useEffect(() => {
+    if (!highlightedArea) {
+      setAreaStats(null);
+      setStatsError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    setStatsLoading(true);
+    setStatsError(null);
+
+    fetch(`/api/areas/stats?area=${encodeURIComponent(highlightedArea.name)}`, { signal })
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `${res.status} ${res.statusText}`);
+        }
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        setAreaStats(data);
+      })
+      .catch((err) => {
+        if (!signal.aborted) {
+          setStatsError(err?.message ?? "取得資料失敗");
+        }
+      })
+      .finally(() => {
+        if (!signal.aborted) setStatsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [highlightedArea]);
+
+  // Add a Leaflet control with "回行政區" and show/hide areas toggle
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+
+    const container = L.DomUtil.create("div", "leaflet-bar");
+    container.style.display = "flex";
+    container.style.gap = "8px";
+    container.style.padding = "6px";
+
+    const btnBack = L.DomUtil.create("button", "", container) as HTMLButtonElement;
+    btnBack.title = "回行政區";
+    btnBack.innerHTML = "🔙";
+    btnBack.style.background = "#f59e0b";
+    btnBack.style.color = "white";
+    btnBack.style.border = "none";
+    btnBack.style.padding = "6px 8px";
+    btnBack.style.borderRadius = "8px";
+    btnBack.onclick = (e) => {
+      e.preventDefault();
+      clearHighlightedArea();
+    };
+
+    const btnToggle = L.DomUtil.create("button", "", container) as HTMLButtonElement;
+    btnToggle.title = "顯示/隱藏生活圈";
+    btnToggle.style.background = "white";
+    btnToggle.style.border = "1px solid #e5e7eb";
+    btnToggle.style.padding = "6px 8px";
+    btnToggle.style.borderRadius = "8px";
+    btnToggle.onclick = (e) => {
+      e.preventDefault();
+      setShowAreas((s) => !s);
+    };
+
+    const CustomControl = (L.Control as any).extend({
+      options: { position: "topright" },
+      onAdd: function () {
+        return container;
+      },
+    });
+
+    const controlInstance = new CustomControl();
+    map.addControl(controlInstance);
+    setMapReady(true);
+
+    return () => {
+      map.removeControl(controlInstance);
+    };
+  }, [clearHighlightedArea]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const button = mapRef.current?.getContainer().querySelector('button[title="顯示/隱藏生活圈"]');
+    if (button) {
+      button.textContent = showAreas ? "隱藏生活圈" : "顯示生活圈";
+    }
+  }, [showAreas, mapReady]);
 
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
 
@@ -219,8 +347,37 @@ export default function TransactionMap() {
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <MapEvents onMoveEnd={loadPoints} />
-          {points.map((p) => (
+          <MapEvents onMoveEnd={loadPoints} onZoom={(z) => setCurrentZoom(z)} />
+          {/* 生活圈（例如：勤美 / 草悟道）標記 - 可點擊放大並高亮；僅在高縮放或與行政區過濾相容時顯示 */}
+          {(showAreas && (mapRef.current ? currentZoom >= COMMUNITY_MIN_ZOOM : true)) &&
+            TAICHUNG_AREAS.filter((a) => {
+              if (!filters.district) return true;
+              // 若 area 含 district 屬性則比對，否則視為可顯示
+              // @ts-ignore
+              return (a as any).district ? (a as any).district === filters.district : true;
+            }).map((a) => (
+              <Marker
+                key={a.name}
+                position={[a.latitude, a.longitude]}
+                icon={L.divIcon({
+                  html: `<div style="font-size:12px;padding:4px 6px;background:#fff;border-radius:8px;box-shadow:0 1px 2px rgba(0,0,0,.2);font-weight:600">${a.name}</div>`,
+                  className: "",
+                  iconSize: [120, 24],
+                  iconAnchor: [60, 12],
+                })}
+                eventHandlers={{ click: () => openArea(a) }}
+              >
+                <Tooltip direction="top" offset={[0, -10]}>
+                  <div className="text-xs">{a.name}</div>
+                </Tooltip>
+              </Marker>
+            ))}
+          {points
+            .filter((p) => {
+              if (!highlightedArea) return true;
+              return distanceKm(p.latitude, p.longitude, highlightedArea.latitude, highlightedArea.longitude) <= highlightedArea.radiusKm;
+            })
+            .map((p) => (
             <CircleMarker
               key={p.serialNo}
               center={[p.latitude, p.longitude]}
@@ -253,6 +410,10 @@ export default function TransactionMap() {
           {/* 社區建築物圖示（點擊出摘要卡） */}
           {communities
             .filter((c) => c.latitude !== null && c.longitude !== null)
+            .filter((c) => {
+              if (!highlightedArea) return true;
+              return distanceKm(c.latitude!, c.longitude!, highlightedArea.latitude, highlightedArea.longitude) <= highlightedArea.radiusKm;
+            })
             .map((c) => (
               <Marker
                 key={c.id}
@@ -287,7 +448,18 @@ export default function TransactionMap() {
                 </Popup>
               </Marker>
             ))}
+
+          {/* 高亮圓（選定生活圈） */}
+          {highlightedArea && (
+            <Circle
+              center={[highlightedArea.latitude, highlightedArea.longitude]}
+              radius={highlightedArea.radiusKm * 1000}
+              pathOptions={{ color: "#f59e0b", weight: 3, fillColor: "#fef3c7", fillOpacity: 0.35 }}
+            />
+          )}
         </MapContainer>
+
+        {/* 地圖控制按鈕（由 Leaflet control 提供） */}
 
         {/* 圖例 */}
         <div className="absolute bottom-4 left-4 z-[1000] rounded bg-white/95 px-3 py-2 text-xs shadow">
@@ -308,6 +480,103 @@ export default function TransactionMap() {
             </div>
           ))}
         </div>
+
+        {/* 圈內社區清單（點擊生活圈後顯示） */}
+        {highlightedArea && (
+          <aside className="absolute left-4 top-28 z-[1100] w-80 max-w-[85vw] rounded bg-white shadow p-3 space-y-3">
+            <div className="mb-2 flex items-center justify-between">
+              <div>
+                <div className="font-bold text-slate-800">{highlightedArea.name}</div>
+                <div className="text-xs text-slate-500">生活圈半徑 {highlightedArea.radiusKm} km</div>
+              </div>
+              <button className="text-sm text-slate-500" onClick={clearHighlightedArea}>關閉</button>
+            </div>
+
+            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+              {statsLoading ? (
+                <div className="text-slate-500">載入生活圈統計...</div>
+              ) : statsError ? (
+                <div className="text-sm text-rose-600">{statsError}</div>
+              ) : areaStats ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                    <div className="rounded bg-white p-2 shadow-sm">
+                      <div className="font-bold text-slate-800">{areaStats.stats.txCount ?? 0}</div>
+                      <div>交易筆數</div>
+                    </div>
+                    <div className="rounded bg-white p-2 shadow-sm">
+                      <div className="font-bold text-slate-800">{areaStats.communityCount}</div>
+                      <div>社區家數</div>
+                    </div>
+                    <div className="rounded bg-white p-2 shadow-sm">
+                      <div className="font-bold text-slate-800">{areaStats.stats.avgUnitPricePerPing ? `${(areaStats.stats.avgUnitPricePerPing / 10000).toFixed(1)} 萬` : '—'}</div>
+                      <div>平均每坪</div>
+                    </div>
+                    <div className="rounded bg-white p-2 shadow-sm">
+                      <div className="font-bold text-slate-800">{areaStats.stats.medianTotalPrice ? `${Math.round(areaStats.stats.medianTotalPrice / 10000).toLocaleString()} 萬` : '—'}</div>
+                      <div>中位總價</div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="font-semibold text-slate-700">價格趨勢</div>
+                    <div className="space-y-1">
+                      {(() => {
+                        const maxValue = Math.max(
+                          1,
+                          ...areaStats.series.map((row) => row.avgUnitPricePerPing ?? 0)
+                        );
+                        return areaStats.series.slice(-8).map((row) => (
+                          <div key={row.month} className="flex items-center gap-2">
+                            <div className="w-14 text-slate-600">{row.month}</div>
+                            <div className="h-3 flex-1 rounded bg-slate-200">
+                              <div
+                                className="h-3 rounded bg-amber-500"
+                                style={{ width: `${Math.min(100, ((row.avgUnitPricePerPing ?? 0) / maxValue) * 100)}%` }}
+                              />
+                            </div>
+                            <div className="w-16 text-right text-slate-700">
+                              {row.avgUnitPricePerPing ? `${(row.avgUnitPricePerPing / 10000).toFixed(1)}w` : '—'}
+                            </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+                    <div className="rounded bg-white p-2 shadow-sm">
+                      <div className="font-semibold text-slate-700">1 年平均</div>
+                      <div>{areaStats.compare.avg1y ? `${(areaStats.compare.avg1y / 10000).toFixed(1)} 萬` : '—'}</div>
+                      <div className="text-slate-400">{areaStats.compare.cnt1y ?? 0} 筆</div>
+                    </div>
+                    <div className="rounded bg-white p-2 shadow-sm">
+                      <div className="font-semibold text-slate-700">5 年平均</div>
+                      <div>{areaStats.compare.avg5y ? `${(areaStats.compare.avg5y / 10000).toFixed(1)} 萬` : '—'}</div>
+                      <div className="text-slate-400">{areaStats.compare.cnt5y ?? 0} 筆</div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-slate-500">尚無生活圈統計資料。</div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2 max-h-[40vh] overflow-y-auto">
+              {filteredCommunities.length === 0 && (
+                <div className="text-sm text-slate-500">圈內無社區或資料尚未載入。</div>
+              )}
+              {filteredCommunities.map((c) => (
+                <a key={c.id} href={`/community/${c.id}`} className="flex items-center justify-between rounded border p-2 hover:bg-slate-50">
+                  <div className="text-sm font-medium">{c.name}</div>
+                  <div className="text-sm text-slate-600">
+                    {c.avgUnitPricePerPing ? `${(c.avgUnitPricePerPing / 10000).toFixed(1)} 萬/坪` : "—"}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </aside>
+        )}
 
         {/* 地址成交歷史側欄 */}
         {detail && (
