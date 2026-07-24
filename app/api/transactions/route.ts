@@ -49,6 +49,28 @@ export async function GET(request: Request) {
     };
   }
 
+  const isSummary = searchParams.get("summary") === "district";
+  if (isSummary) {
+    const groups = await prisma.transaction.groupBy({
+      by: ["district"],
+      where: {
+        latitude: { not: null },
+        longitude: { not: null },
+      },
+      _count: { district: true },
+      _avg: { unitPrice: true },
+      orderBy: { _count: { district: "desc" } },
+    });
+    const districts = groups.map((group) => ({
+      district: group.district,
+      txCount: group._count.district,
+      avgUnitPricePerPing: group._avg.unitPrice
+        ? Math.round(group._avg.unitPrice * 3.3058)
+        : null,
+    }));
+    return Response.json({ districts });
+  }
+
   const limit = Math.min(Number(searchParams.get("limit")) || 1500, 3000);
 
   const rows = await prisma.transaction.findMany({

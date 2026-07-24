@@ -2,7 +2,7 @@
 
 // 地圖找房主畫面：Leaflet 地圖 + 篩選列 + 地址成交歷史側欄
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -20,6 +20,7 @@ import {
   type AddressDetail,
   type CommunityMapHit,
   type AreaStatsResult,
+  type DistrictSummary,
   TAICHUNG_DISTRICTS,
   BUILDING_TYPES,
 } from "@/lib/types";
@@ -91,6 +92,8 @@ export default function TransactionMap() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [districtStats, setDistrictStats] = useState<DistrictSummary[] | null>(null);
+  const [districtLoading, setDistrictLoading] = useState(false);
   const mapRef = useRef<LeafletMap | null>(null);
   const [prevView, setPrevView] = useState<null | { lat: number; lng: number; zoom: number }>(null);
   const [currentZoom, setCurrentZoom] = useState<number>(INITIAL_ZOOM);
@@ -101,6 +104,17 @@ export default function TransactionMap() {
     if (c.latitude === null || c.longitude === null) return false;
     return distanceKm(c.latitude, c.longitude, highlightedArea.latitude, highlightedArea.longitude) <= highlightedArea.radiusKm;
   });
+
+  const noFilter = useMemo(
+    () =>
+      !filters.district &&
+      !filters.buildingType &&
+      !filters.priceMin &&
+      !filters.priceMax &&
+      !filters.dateFrom &&
+      !filters.dateTo,
+    [filters]
+  );
 
   const loadPoints = useCallback(async (map: LeafletMap) => {
     const b = map.getBounds();
@@ -137,10 +151,31 @@ export default function TransactionMap() {
     }
   }, [filters]);
 
-  // 篩選條件變更時重新載入目前視野
+  const loadDistrictStats = useCallback(async () => {
+    setDistrictLoading(true);
+    try {
+      const res = await fetch(`/api/transactions?summary=district`);
+      if (res.ok) {
+        const data = await res.json();
+        setDistrictStats(data.districts ?? null);
+      }
+    } finally {
+      setDistrictLoading(false);
+    }
+  }, []);
+
+  // 篩選條件變更時重新載入目前視野；沒選條件時改載入行政區概覽
   useEffect(() => {
-    if (mapRef.current) loadPoints(mapRef.current);
-  }, [loadPoints]);
+    if (!mapRef.current) return;
+    if (noFilter) {
+      setPoints([]);
+      setCommunities([]);
+      loadDistrictStats();
+      return;
+    }
+    setDistrictStats(null);
+    loadPoints(mapRef.current);
+  }, [loadPoints, loadDistrictStats, noFilter]);
 
   const openAddress = useCallback(async (normalizedAddress: string | null) => {
     if (!normalizedAddress) return;
@@ -327,7 +362,15 @@ export default function TransactionMap() {
           />
         </span>
         <span className="ml-auto text-slate-500">
-          {loading ? "載入中…" : `顯示 ${points.length} 筆`}
+          {noFilter
+            ? districtLoading
+              ? "載入行政區概覽…"
+              : districtStats
+              ? `行政區概覽：${districtStats.length} 區`
+              : "請選擇行政區或篩選條件"
+            : loading
+            ? "載入中…"
+            : `顯示 ${points.length} 筆`}
         </span>
       </header>
 
@@ -339,7 +382,13 @@ export default function TransactionMap() {
           ref={(m) => {
             if (m && !mapRef.current) {
               mapRef.current = m;
-              loadPoints(m);
+              if (noFilter) {
+                setPoints([]);
+                setCommunities([]);
+                loadDistrictStats();
+              } else {
+                loadPoints(m);
+              }
             }
           }}
         >
@@ -461,6 +510,48 @@ export default function TransactionMap() {
 
         {/* 地圖控制按鈕（由 Leaflet control 提供） */}
 
+        {/* 行政區概覽面板 */}
+        {noFilter && districtStats && (
+          <aside className="absolute left-4 top-24 z-[1000] w-96 max-w-[90vw] rounded-3xl border border-slate-200 bg-white/95 p-4 shadow-xl backdrop-blur-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">行政區概覽</div>
+                <div className="text-xs text-slate-500">尚未選擇篩選條件時的輕量化入口</div>
+              </div>
+              <button
+                className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-100"
+                onClick={() => setShowAreas((s) => !s)}
+              >
+                {showAreas ? "隱藏生活圈" : "顯示生活圈"}
+              </button>
+            </div>
+            <div className="grid gap-3">
+              {districtStats.slice(0, 8).map((d) => (
+                <button
+                  key={d.district}
+                  type="button"
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-sky-300"
+                  onClick={() => set({ district: d.district })}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold text-slate-900">{d.district}</span>
+                    <span className="text-xs text-slate-500">{d.txCount} 筆</span>
+                  </div>
+                  <div className="mt-2 text-sm text-slate-600">
+                    {d.avgUnitPricePerPing
+                      ? `${(d.avgUnitPricePerPing / 10000).toFixed(1)} 萬/坪`
+                      : "無價格資料"}
+                  </div>
+                </button>
+              ))}
+            </div>
+            {districtStats.length > 8 && (
+              <div className="mt-4 rounded-2xl bg-slate-100 p-3 text-sm text-slate-600">
+                顯示前 8 個行政區結果。選擇任一區即可載入該區的成交點與社區資料。
+              </div>
+            )}
+          </aside>
+        )}
         {/* 圖例 */}
         <div className="absolute bottom-4 left-4 z-[1000] rounded bg-white/95 px-3 py-2 text-xs shadow">
           <div className="mb-1 font-bold text-slate-700">每坪單價</div>

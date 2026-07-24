@@ -37,6 +37,12 @@ export interface RegistryHit {
   households: number | null;
 }
 
+export interface DistrictSummary {
+  district: string;
+  txCount: number;
+  avgUnitPricePerPing: number | null;
+}
+
 export interface TransactionPoint {
   serialNo: string;
   district: string;

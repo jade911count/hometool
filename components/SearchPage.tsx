@@ -26,6 +26,13 @@ export default function SearchPage() {
   const [result, setResult] = useState<SearchResult>(EMPTY_RESULT);
   const router = useRouter();
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const query = params.get("q") ?? "";
+    setQ(query);
+    setSearched(query.length > 0);
+  }, []);
+
   const trimmed = q.trim();
   const canSearch = trimmed.length > 0;
 
